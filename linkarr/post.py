@@ -12,7 +12,9 @@ from . import captcha, decode
 from .mega import MegaError, find_links
 from .parse import parse_name
 
-MAX_LINKS = 40
+MAX_LINKS = 250
+MAX_TEXT = 400_000  # a long forum thread copied whole
+MAX_CODES = 1000  # Base64 codes decoded per post
 _RES_ORDER = {"2160p": 4, "1080p": 3, "720p": 2, "576p": 1, "480p": 0}
 _RES = re.compile(r"\b(2160p|1080p|720p|576p|480p|4k|uhd)\b", re.I)
 _PASSWORD = re.compile(r"\b(?:password|passwd|pass|pw|pwd)\b\s*(?:is\b|[:=\-])\s*([^\s<>\"]{1,100})", re.I)
@@ -56,10 +58,10 @@ def _labels(text: str, urls: list[str]) -> dict[str, str]:
 
 def links_in(text: str, hosts: list[str]) -> tuple[list[str], list[str]]:
     """(MEGA links, captcha links) in a post, in order. Base64 codes in the text are decoded too."""
-    text = (text or "")[:50000]
+    text = (text or "")[:MAX_TEXT]
     mega = find_links(decode._with_scheme(text))
     caps = captcha.find(text, hosts)
-    for tok in _TOKEN.findall(text)[:20]:
+    for tok in list(dict.fromkeys(_TOKEN.findall(text)))[:MAX_CODES]:
         if "mega" in tok.lower() and "/" in tok:
             continue  # part of a link, not a code
         got = decode.unwrap(tok, hosts=hosts)
@@ -149,7 +151,7 @@ async def scan(ctx, text: str, hosts: list[str]) -> dict:
         "SELECT l.url, j.title, j.updated_at FROM links l JOIN jobs j ON j.id = l.job_id "
         "WHERE j.status = 'done' AND l.status IN ('moved', 'skipped', 'ready', 'downloaded')")}
     shelf = await asyncio.to_thread(_shelf, ctx)
-    gate = asyncio.Semaphore(4)
+    gate = asyncio.Semaphore(6)
 
     async def one(url: str) -> dict:
         label = labels.get(url, "")

@@ -282,7 +282,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         return job
 
     class Post(BaseModel):
-        text: str = Field(min_length=1, max_length=50000)
+        text: str = Field(min_length=1, max_length=post.MAX_TEXT)
 
     @app.post("/api/scan")
     async def scan_post(body: Post, request: Request):

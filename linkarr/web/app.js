@@ -262,7 +262,7 @@
     const site = ov.site;
     morph($("#side-site"), site ? `<a class="site-btn" href="${esc(site.url)}" target="_blank" rel="noopener noreferrer">${siteIcon(site)}<span class="ellipsis">${esc(site.name)}</span>${ICON.ext}</a>` : "");
     morph($("#side-foot"), `${quotaMeter(ov.quota)}
-      <div class="acct"><span class="dot ${ov.mega ? "ok" : ""}"></span><span class="ellipsis">${ov.mega ? esc(ov.mega) : "MEGA not signed in"}</span></div>
+      <div class="acct"><span class="dot ${ov.mega || ov.quota ? "ok" : ""}"></span><span class="ellipsis">${ov.mega ? esc(ov.mega) : ov.quota ? "MEGA signed in" : "MEGA not signed in"}</span></div>
       <div class="ver">v${esc(ov.version)}${ov.free != null ? " · " + fmtBytes(ov.free) + " free" : ""}</div>`);
     tabbar(ov);
     const n = needsYou(ov).length;
@@ -371,13 +371,17 @@
         <div class="meta">${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</div>
         ${useLabels && l.label && l.label !== name ? `<div class="muted small">In the post: ${esc(l.label)}</div>` : ""}
         ${l.group && !dead ? `<div class="alt">Same title in ${groups[l.group]} qualities. Pick one.</div>` : ""}
+        ${l.have && !dead ? `<div class="have-note">${ICON.check}<span>${esc(l.have)} Tick it to get it again.</span></div>` : ""}
         ${dead ? `<div class="err">${esc(l.error)}</div>` : ""}</div></label>`;
     };
     const capRow = (u, i) => `<label class="pick"><input type="checkbox" data-cap="${i}" checked><div class="grow"><div class="name">Captcha link</div>
       <div class="meta"><span>${esc(u.split("/")[2] || u)}</span></div><div class="muted small">Linkarr holds it for you to solve, then carries on with the MEGA link you paste back.</div></div></label>`;
     const d = document.createElement("dialog");
     d.className = "picker";
-    d.innerHTML = `<div class="head"><div class="label acc">${links.length + caps.length} link${links.length + caps.length === 1 ? "" : "s"} in this post</div><h2>Pick what to add</h2></div>
+    const nHave = links.filter((l) => l.have && !l.error).length;
+    const nNew = links.filter((l) => !l.have && !l.error).length;
+    d.innerHTML = `<div class="head"><div class="label acc">${links.length + caps.length} link${links.length + caps.length === 1 ? "" : "s"} in this post</div><h2>Pick what to add</h2>
+      ${nHave ? `<div class="small muted">${nHave} you already have ${nHave === 1 ? "is" : "are"} left unticked. ${nNew} ${nNew === 1 ? "is" : "are"} new.</div>` : ""}</div>
       <div class="body">${links.map(row).join("")}${caps.map(capRow).join("")}
         ${r.more ? `<div class="muted small" style="padding:10px 0">${r.more} more links weren't read. Add them in a second go.</div>` : ""}</div>
       <div class="foot"><label class="f"><span>Archive password${r.password ? " (found in the post)" : ", if the files are locked"}</span>
@@ -476,6 +480,8 @@
     state.route = path;
     $$("#nav a, #tabbar a[data-route]").forEach((a) => a.classList.toggle("on", a.dataset.route === navKey(path.split("/")[0])));
     $("#top-extra").innerHTML = "";
+    // Library and History have their own search; one box at the top is enough.
+    const pb = $("#paste"); if (pb) pb.hidden = ["library", "history"].includes(path.split("/")[0]);
     $(".main").classList.toggle("no-paste", navKey(path.split("/")[0]) === "settings");
     const pages = { "": renderActivity, library: renderLibrary, tracker: renderTracker, shows: renderTracker, history: renderHistory, settings: renderSettings,
       decode: () => renderSettings(new URLSearchParams("tab=system")), check: () => renderSettings(new URLSearchParams("tab=check")), logs: () => renderSettings(new URLSearchParams("tab=system")) };
@@ -589,7 +595,7 @@
       buttons = `<a class="btn sm primary" href="#/job/${a.job_id}">Open</a>`;
     }
     buttons += `<button class="btn sm ghost" data-action="dismiss" data-alert="${a.id}">Dismiss</button>`;
-    const label = { integrity: "Damaged", dead: "Link gone", error: "Download failed", auth: "MEGA sign-in", space: "Disk full", unpack: "Couldn't unpack",
+    const label = { integrity: "Damaged", dead: "Link gone", error: "Download failed", auth: "MEGA sign-in", space: "Low on space", unpack: "Couldn't unpack",
       novideo: "No video", plex: "Plex", inbox: "Inbox", match: "Same title?", conflict: "Already have it", recheck: "Check the title", show: "Which show" }[a.kind] || "Needs you";
     return `<div class="card alert ${cls}"><span class="ic">${cls === "info" ? ICON.info : ICON.warn}</span><div class="grow">
       <div class="spread"><span class="label ${cls === "bad" ? "bad" : "acc"}">${esc(label)}</span><span class="when">${fmtAgo(a.created_at)}</span></div>
@@ -1085,8 +1091,8 @@
       const d = await api("GET", "/api/shows/" + id);
       const card = btn.closest(".result, .have-more");
       const onDisk = new Set($$(".chip.have", card).map((c) => parseInt(c.textContent.slice(1), 10)));
-      box.innerHTML = `<div class="small"><span class="tag ${d.status === "Ended" || d.status === "Canceled" ? "" : "ok"}">${esc(d.status || "Unknown")}</span>
-        ${d.next_air ? ` Next episode ${esc(d.next_air)}` : ""}</div>
+      box.innerHTML = `<div class="small"><span class="tag ${d.status === "Ended" || d.status === "Canceled" ? "" : "ok"}">${esc(showStatus(d.status))}</span>
+        ${d.next_air ? ` Next episode ${esc(airDate(d.next_air))}` : ""}</div>
         <div class="chips" style="margin-top:6px">${d.seasons.map((s) => `<span class="chip static ${onDisk.has(s.season) ? "have" : "miss"}" title="${s.episodes} episodes">S${s.season}</span>`).join("")}</div>
         <label class="check small"><input type="checkbox" data-action="watch" data-id="${id}" data-name="${esc(btn.dataset.name)}" data-folder="${esc(btn.dataset.folder)}" data-lib="${esc(btn.dataset.lib)}" data-poster="${esc(d.poster || "")}" ${d.watching ? "checked" : ""}>
         <span>Tell me when a season starts, a finale airs, or the show ends</span></label>`;
@@ -1177,7 +1183,7 @@
         <button class="btn primary" data-action="track-all" ${imp.running ? "disabled" : ""}>${ICON.plus}Track all my series</button></div>
         <div id="track-all">${trackAllBox(imp)}</div>` + comingUp(rows) + (rows.length
         ? `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Series you track</h2><span class="count num">${rows.length}</span></div></div>` + showFilter(rows) + `<div class="list shows">${rows.filter((s) => !state.gapsOnly || s.missing).map((s) => `<div class="li"><div class="grow"><b>${esc(s.name)}</b>
-          <div class="muted small">${esc(s.status || "Not checked yet")}${s.next_air ? " · next episode " + esc(s.next_air) : ""}${s.seasons ? ` · ${s.seasons} season${s.seasons === 1 ? "" : "s"}` : ""}</div>
+          <div class="muted small">${esc(showStatus(s.status))}${s.next_air ? " · next episode " + esc(airDate(s.next_air)) : ""}${s.seasons ? ` · ${s.seasons} season${s.seasons === 1 ? "" : "s"}` : ""}</div>
           ${s.missing ? `<div class="small gap">${esc(s.missing)}</div>` : s.checked ? `<div class="small have-all">You have every episode</div>` : ""}</div>
           ${s.missing ? `<a class="btn sm" href="#/library?q=${encodeURIComponent(s.name)}&tmdb=${s.tmdb_id}">Find</a>` : ""}
           <button class="btn sm ghost" data-action="unwatch" data-id="${s.tmdb_id}">Stop</button></div>`).join("")}</div></div>`
@@ -1186,13 +1192,29 @@
     } catch (e) { page().innerHTML = trackerTabs("series") + `<div class="err">${esc(e.message)}</div>`; }
   }
 
+  // One way to write a show's dates and status everywhere: "Today", "Sun, Nov 15"; "Airing", not TMDB's "Returning Series".
+  const airDate = (iso) => {
+    const d = new Date(iso + "T00:00:00"); if (isNaN(d)) return iso;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const n = Math.round((d - today) / 864e5);
+    if (n === 0) return "Today";
+    if (n === 1) return "Tomorrow";
+    if (n === -1) return "Yesterday";
+    const opts = { weekday: "short", day: "numeric", month: "short" };
+    if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  };
+  const SHOW_STATUS = { "Returning Series": "Airing", "In Production": "Coming back", Planned: "Announced", Ended: "Ended", Canceled: "Canceled", Pilot: "Pilot" };
+  const s_iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const showStatus = (st) => SHOW_STATUS[st] || st || "Not checked yet";
+
   // The next two weeks of new episodes for shows you track, each with a small poster.
   function comingUp(rows) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const soon = rows.filter((s) => s.next_air).map((s) => ({ s, d: new Date(s.next_air + "T00:00:00") }))
       .filter((x) => !isNaN(x.d) && x.d >= today && (x.d - today) / 864e5 <= 14).sort((a, b) => a.d - b.d).slice(0, 12);
     if (!soon.length) return "";
-    const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? "TODAY" : n === 1 ? "TOMORROW" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).toUpperCase(); };
+    const when = (d) => airDate(s_iso(d)).toUpperCase();
     return `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Coming up</h2><span class="count num">next 14 days</span></div></div>
       <div class="coming">${soon.map(({ s, d }) => `<div class="it">${posterEl(s.poster, s.name, "card")}<div class="when">${esc(when(d))}</div><div class="t">${esc(s.name)}</div></div>`).join("")}</div></div>`;
   }

@@ -77,7 +77,7 @@ def choose(items: list[dict]) -> None:
     qualities only the best is ticked. Sets 'group' (rows that are alternatives share one) and 'selected'."""
     groups: dict[tuple, list[dict]] = {}
     for it in items:
-        if it.get("error") or it.get("queued"):
+        if it.get("error") or it.get("queued") or it.get("have"):
             it["selected"] = False
             it["group"] = ""
             continue
@@ -100,6 +100,42 @@ def choose(items: list[dict]) -> None:
                 r["selected"] = True
 
 
+def _shelf(ctx) -> list[tuple[dict, str, set]]:
+    """Every folder in your libraries: (library, folder, season numbers found as 'Season N' folders)."""
+    from . import files, jobs
+    out = []
+    for lib in jobs.libraries(ctx.db):
+        base = jobs.lib_dir(ctx.cfg, lib)
+        for f in files.list_folders(base):
+            seasons = set()
+            if lib["kind"] == "series":
+                try:
+                    seasons = {int(m.group(1)) for p in (base / f).iterdir() if p.is_dir()
+                               for m in [re.match(r"(?i)^(?:season|series|staffel|saison|temporada)\s*0*(\d{1,3})$", p.name)] if m}
+                except OSError:
+                    pass
+            out.append((lib, f, seasons))
+    return out
+
+
+def _have(shelf: list, item: dict) -> str:
+    """'In Movies: Free Solo (2018)' when a folder in your library has this title (and, for a show, every
+    season in the link). Only near-exact names count, so a remake or a spinoff stays ticked."""
+    from . import naming
+    title = item.get("title") or ""
+    if not title or len(title) < 3:
+        return ""
+    for lib, folder, seasons in shelf:
+        if naming.score(title, folder, item.get("year")) < naming.EXACT:
+            continue
+        if item.get("seasons"):
+            if lib["kind"] != "series" or not set(item["seasons"]) <= seasons:
+                continue
+            return f"You have {'these seasons' if len(item['seasons']) > 1 else 'this season'} in {lib['name']}: {folder}."
+        return f"You have it in {lib['name']}: {folder}."
+    return ""
+
+
 async def scan(ctx, text: str, hosts: list[str]) -> dict:
     """{'links': [...], 'captcha': [...], 'password': '...', 'more': n}: what a pasted post holds."""
     mega, caps = links_in(text, hosts)
@@ -108,14 +144,23 @@ async def scan(ctx, text: str, hosts: list[str]) -> dict:
     labels = _labels(text, mega)
     queued = {r["url"] for r in ctx.db.query(
         "SELECT l.url FROM links l JOIN jobs j ON j.id = l.job_id WHERE j.status NOT IN ('done','canceled')")}
+    # Links you've already downloaded (going back to the same thread for its new links): left unticked.
+    done = {r["url"]: r for r in ctx.db.query(
+        "SELECT l.url, j.title, j.updated_at FROM links l JOIN jobs j ON j.id = l.job_id "
+        "WHERE j.status = 'done' AND l.status IN ('moved', 'skipped', 'ready', 'downloaded')")}
+    shelf = await asyncio.to_thread(_shelf, ctx)
     gate = asyncio.Semaphore(4)
 
     async def one(url: str) -> dict:
         label = labels.get(url, "")
         item = {"url": url, "label": label, "name": "", "size": 0, "files": 0, "kind": "movie", "title": "", "year": None,
-                "seasons": [], "resolution": _norm_res(label), "error": "", "queued": url in queued}
+                "seasons": [], "resolution": _norm_res(label), "error": "", "queued": url in queued, "have": ""}
         if item["queued"]:
             item["error"] = "Already in the queue."
+            return item
+        if url in done:
+            item["have"] = "Downloaded before" + (f" as {done[url]['title']}" if done[url]["title"] else "") + "."
+            item["name"] = done[url]["title"] or ""
             return item
         try:
             async with gate:
@@ -135,6 +180,7 @@ async def scan(ctx, text: str, hosts: list[str]) -> dict:
                     break
         if item["seasons"]:
             item["kind"] = "series"
+        item["have"] = _have(shelf, item)
         return item
 
     items = list(await asyncio.gather(*(one(u) for u in mega)))

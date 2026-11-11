@@ -181,3 +181,32 @@ def test_cookie_follows_the_address_unless_set(cfg):
                 r = c.post("/api/auth/login", json={"username": "admin", "password": "correct horse battery"}, headers=H)
             assert r.status_code == 200, r.text
             assert ("secure" in r.headers["set-cookie"].lower()) is secure
+
+
+# ---- back to the same thread: skip what you have ----------------------------------------------
+
+def test_picker_skips_what_you_have_and_what_you_downloaded(ctx, libs):
+    from linkarr import post
+    m = ctx.mega
+    A = f"https://mega.nz/file/Mclass01#{KEY}"
+    B = f"https://mega.nz/file/Mclass02#{KEY}"
+    C = f"https://mega.nz/file/Mclass03#{KEY}"
+    D = f"https://mega.nz/folder/Sev20001#{KEY}"
+    m.add(A, "Free.Solo.2018.1080p.mkv", [("Free.Solo.2018.1080p.mkv", 10)], kind="file")
+    m.add(B, "Dune.Part.Two.2024.1080p.mkv", [("Dune.Part.Two.2024.1080p.mkv", 10)], kind="file")
+    m.add(C, "Night.of.the.Living.Dead.1968.mkv", [("Night.of.the.Living.Dead.1968.mkv", 10)], kind="file")
+    m.add(D, "Severance.S02.1080p", [("Severance.S02E01.1080p.mkv", 10)])
+    (ctx.cfg.media_dir / "Documentaries" / "Free Solo (2018)").mkdir(parents=True)
+    (ctx.cfg.media_dir / "TV Shows" / "Severance (2022)" / "Season 1").mkdir(parents=True)
+    # B was downloaded before
+    jid = ctx.db.run("INSERT INTO jobs (kind, title, status, created_at, updated_at) VALUES ('movie','Dune: Part Two','done',0,0)").lastrowid
+    ctx.db.run("INSERT INTO links (job_id, url, name, status, created_at) VALUES (?,?,?,'moved',0)", (jid, B, "Dune"))
+    r = run(post.scan(ctx, f"{A}\n{B}\n{C}\n{D}", []))
+    by = {i["url"]: i for i in r["links"]}
+    assert "You have it in Documentaries" in by[A]["have"] and not by[A]["selected"]
+    assert by[B]["have"].startswith("Downloaded before") and not by[B]["selected"]
+    assert not by[C]["have"] and by[C]["selected"]
+    assert not by[D]["have"] and by[D]["selected"]  # Season 2 isn't on disk yet
+    (ctx.cfg.media_dir / "TV Shows" / "Severance (2022)" / "Season 2").mkdir()
+    r = run(post.scan(ctx, f"{D}", []))
+    assert "this season" in r["links"][0]["have"] and not r["links"][0]["selected"]

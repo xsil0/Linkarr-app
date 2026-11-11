@@ -16,6 +16,9 @@
   and Find searches for that. **Also rename the folder to the show's name** (off unless you tick it).
 - **Your download site's logo:** upload a small picture in Settings → Accounts to show instead of the
   icon letters.
+- **Back to the same thread for its new links:** the link picker leaves unticked what you already have,
+  either links you downloaded before or titles (and seasons) already in a library folder, and says so.
+  Tick one to get it again.
 - Posters on TMDB search results in Library.
 - MEGA storage (used of total) shows under the transfer allowance in the menu, and in
   **Check the allowance now**.
@@ -28,6 +31,11 @@
 - **Sign-in works over plain http** on your home network with nothing to set. Over HTTPS the cookie is
   still HTTPS-only. `LA_COOKIE_SECURE=1` makes it HTTPS-only always, `0` never.
 - The first-run page says step by step where to find the setup code.
+- The paste bar is off Library and History, which have their own search.
+- Show dates read the same everywhere ("Sun, Nov 15"), and show status is in plain words ("Airing"
+  instead of TMDB's "Returning Series").
+- Alert titles say what went wrong ("This video won't play", not "A download got stuck").
+- The menu no longer says "MEGA not signed in" under the MEGA allowance meters.
 - Long show descriptions in search results wrap to two lines, so **Track this** and **Use this** stay
   in view.
 

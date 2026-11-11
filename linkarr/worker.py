@@ -314,16 +314,16 @@ class Worker:
         self._link_failed(link, e.kind, str(e))
         await self._notify_alert(link["job_id"], lid, e.kind)
 
-    def _link_failed(self, link: dict, kind: str, message: str) -> None:
+    def _link_failed(self, link: dict, kind: str, message: str, title: str = "") -> None:
         self.db.run("UPDATE links SET status='error', error_kind=?, error=? WHERE id=?", (kind, message[:500], link["id"]))
         titles = {
-            "integrity": "A download got stuck",
+            "integrity": "A download kept failing MEGA's file check",
             "dead": "This link is dead",
             "missing": "MEGAcmd is missing",
             "unpack": "Couldn't unpack it",
             "novideo": "No video in this download",
         }
-        add_alert(self.db, kind if kind in titles else "error", titles.get(kind, "A download failed"),
+        add_alert(self.db, kind if kind in titles else "error", title or titles.get(kind, "A download failed"),
                   message if link["name"] and link["name"] in message else f"{link['name']}: {message}",
                   link["job_id"], link["id"])
 
@@ -367,11 +367,11 @@ class Worker:
                     try:
                         await files.probe(f)
                     except ValueError as e:
-                        self._link_failed(link, "integrity", str(e))
+                        self._link_failed(link, "integrity", str(e), "This video won't play")
                         await self._notify_alert(link["job_id"], lid, "integrity")
                         return
         except OSError as e:
-            self._link_failed(link, "error", f"File problem: {e}")
+            self._link_failed(link, "error", f"File problem: {e}", "Couldn't read the downloaded files")
             return
         self.db.run("UPDATE links SET status='ready' WHERE id=?", (lid,))
 

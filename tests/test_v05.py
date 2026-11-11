@@ -64,6 +64,13 @@ def test_transfer_quota_reads_used_and_max():
     assert run(api.transfer_quota("secret-session")) == {"used": 350, "max": 1000}
 
 
+def test_quota_includes_storage_when_mega_sends_it():
+    def handler(req):
+        return httpx.Response(200, json=[{"mxfer": 1000, "caxfer": 300, "csxfer": 50, "cstrg": 40, "mstrg": 400}])
+    api = PublicApi(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert run(api.transfer_quota("s")) == {"used": 350, "max": 1000, "storage_used": 40, "storage_max": 400}
+
+
 # ---- links with no video, and links MEGA only partly showed -----------------------------------
 
 def test_link_without_video_warns_and_waits(ctx, libs, mega):

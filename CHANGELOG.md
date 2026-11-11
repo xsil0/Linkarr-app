@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+- MEGA storage (used of total) shows under the transfer allowance in the menu, and in
+  **Check the allowance now**.
+- Long show descriptions in search results wrap to two lines instead of running off the screen, so
+  **Track this** and **Use this** stay in view.
+
 ## 1.0.1
 
 - Track all my series: folders it can't match now have **Find** and **Track this** right in the list.

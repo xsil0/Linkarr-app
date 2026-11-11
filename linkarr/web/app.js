@@ -262,8 +262,14 @@
     if (!q || !q.max) return "";
     const left = Math.max(0, q.max - q.used);
     const pct = Math.min(100, Math.round((100 * q.used) / q.max));
-    return `<div class="quota" title="MEGA transfer allowance: ${fmtBytes(q.used)} used of ${fmtBytes(q.max)}"><div class="label">MEGA transfer</div>
-      <div class="n">${fmtBytes(left)} left of ${fmtBytes(q.max)}</div><div class="bar mono${pct >= 90 ? " low" : ""}"><i style="width:${100 - pct}%"></i></div></div>`;
+    const meter = (label, title, text, lowPct, fill) => `<div class="quota" title="${title}"><div class="label">${label}</div>
+      <div class="n">${text}</div><div class="bar mono${lowPct >= 90 ? " low" : ""}"><i style="width:${fill}%"></i></div></div>`;
+    let html = meter("MEGA transfer", `MEGA transfer allowance: ${fmtBytes(q.used)} used of ${fmtBytes(q.max)}`, `${fmtBytes(left)} left of ${fmtBytes(q.max)}`, pct, 100 - pct);
+    if (q.storage_max) {
+      const sp = Math.min(100, Math.round((100 * q.storage_used) / q.storage_max));
+      html += meter("MEGA storage", `MEGA cloud storage: ${fmtBytes(q.storage_used)} used of ${fmtBytes(q.storage_max)}`, `${fmtBytes(q.storage_used)} used of ${fmtBytes(q.storage_max)}`, sp, sp);
+    }
+    return html;
   }
 
   // Everything waiting on you: alerts, failed jobs (with no alert saying so already) and held captcha links.
@@ -660,7 +666,7 @@
     try {
       const hits = await api("GET", "/api/tmdb/search?q=" + encodeURIComponent(q));
       state.find[id].html = hits.length ? hits.slice(0, 6).map((h) => `<div class="hit"><div class="grow"><b>${esc(h.title)}</b> ${h.year ? `<span class="yr">${h.year}</span>` : ""}
-          <span class="tag">${h.kind === "movie" ? "Movie" : "Series"}</span><div class="muted tiny ellipsis">${esc(h.overview)}</div></div>
+          <span class="tag">${h.kind === "movie" ? "Movie" : "Series"}</span><div class="muted tiny desc">${esc(h.overview)}</div></div>
           <button class="btn sm" data-action="use-tmdb" data-job="${id}" data-id="${h.id}" data-kind="${h.kind}">Use this</button></div>`).join("")
         : `<div class="muted small">Nothing found. Try fewer words, or type the title in Edit details.</div>`;
     } catch (e) { state.find[id].html = `<div class="err">${esc(e.message)}</div>`; }
@@ -876,7 +882,7 @@
       const hits = await api("GET", "/api/tmdb/search?q=" + encodeURIComponent($("#tmdb-q").value));
       box.innerHTML = hits.length ? `<div class="list">${hits.slice(0, 8).map((h) => `<div class="li">${posterEl(h.poster, h.title, "xs")}
         <div class="grow"><div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""} <span class="tag">${h.kind === "movie" ? "Movie" : "Series"}</span></div>
-        <div class="muted tiny ellipsis">${esc(h.overview)}</div></div><button class="btn sm" data-action="use-tmdb" data-job="${j.id}" data-id="${h.id}" data-kind="${h.kind}">Use this</button></div>`).join("")}</div>`
+        <div class="muted tiny desc">${esc(h.overview)}</div></div><button class="btn sm" data-action="use-tmdb" data-job="${j.id}" data-id="${h.id}" data-kind="${h.kind}">Use this</button></div>`).join("")}</div>`
         : `<div class="muted small">Nothing found.</div>`;
     } catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
@@ -913,7 +919,7 @@
         const hits = await api("GET", "/api/tmdb/search?kind=series&q=" + encodeURIComponent($("#mb-q-" + p).value));
         box.innerHTML = hits.length ? `<div class="list">${hits.slice(0, 8).map((h) => `<div class="li">${posterEl(h.poster, h.title, "sm")}
           <div class="grow"><div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""}</div>
-          <div class="muted tiny ellipsis">${esc(h.overview)}</div></div><button class="btn sm" data-action="mb-use" data-target="${target}" data-id="${id}" data-tmdb="${h.id}">Use this</button></div>`).join("")}</div>`
+          <div class="muted tiny desc">${esc(h.overview)}</div></div><button class="btn sm" data-action="mb-use" data-target="${target}" data-id="${id}" data-tmdb="${h.id}">Use this</button></div>`).join("")}</div>`
           : `<div class="muted small">Nothing found. Use a folder instead.</div>`;
       } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
     });
@@ -1092,7 +1098,7 @@
     try {
       const hits = (await api("GET", "/api/tmdb/search?kind=movie&q=" + encodeURIComponent(text))).slice(0, 6);
       box.innerHTML = hits.length ? `<div class="list">${hits.map((h) => `<div class="li">${posterEl(h.poster, h.title, "xs")}<div class="grow">
-          <div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""}</div><div class="muted tiny ellipsis">${esc(h.overview)}</div></div>
+          <div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""}</div><div class="muted tiny desc">${esc(h.overview)}</div></div>
           <button class="btn sm primary" data-action="track-movie" data-id="${h.id}">Track</button></div>`).join("")}</div>` : `<div class="muted small">Nothing found.</div>`;
     } catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
@@ -1151,7 +1157,7 @@
     const hits = f ? (f.html || "") : "";
     return `<div class="li" style="flex-wrap:wrap"><div class="grow ellipsis">${esc(m.folder)} <span class="muted small">${esc(m.library)}</span></div>
       ${f ? "" : `<button class="btn sm" data-action="track-find" data-i="${i}">Find</button>`}
-      ${f ? `<div style="flex:1 1 100%"><form class="row" data-track-find="${i}"><input type="search" value="${esc(f.q)}" style="flex:1 1 200px;width:auto" autocomplete="off" aria-label="Show to search for"><button class="btn sm">Search</button></form>
+      ${f ? `<div class="find-wrap"><form class="row" data-track-find="${i}"><input type="search" value="${esc(f.q)}" style="flex:1 1 200px;width:auto" autocomplete="off" aria-label="Show to search for"><button class="btn sm">Search</button></form>
         <div class="find">${hits}</div></div>` : ""}</div>`;
   }
   async function trackFind(i, q) {
@@ -1163,7 +1169,7 @@
     try {
       const hits = await api("GET", "/api/tmdb/search?kind=series&q=" + encodeURIComponent(q));
       state.trackFind[key].html = hits.length ? hits.slice(0, 5).map((h) => `<div class="hit">${posterEl(h.poster, h.title, "xs")}<div class="grow"><b>${esc(h.title)}</b> ${h.year ? `<span class="yr">${h.year}</span>` : ""}
-          <div class="muted tiny ellipsis">${esc(h.overview || "")}</div></div>
+          <div class="muted tiny desc">${esc(h.overview || "")}</div></div>
           <button class="btn sm primary" data-action="track-pick" data-i="${i}" data-id="${h.id}" data-name="${esc(h.title)}">Track this</button></div>`).join("")
         : `<div class="muted small">Nothing found. Try fewer words.</div>`;
     } catch (e) { state.trackFind[key].html = `<div class="err">${esc(e.message)}</div>`; }
@@ -1589,7 +1595,7 @@
       case "plex-found": await api("POST", `/api/jobs/${job}/plex`, { action: "found" }); toast("Marked as in Plex."); return after();
       case "recheck-ok": await api("PATCH", `/api/jobs/${job}`, { recheck: 0 }); toast("Filing it."); return after();
       case "roundup": await saveAll(); await api("POST", "/api/roundup/send"); toast("Sent the roundup."); return;
-      case "quota": { const r = await api("POST", "/api/mega/quota"); toast(`${fmtBytes(Math.max(0, r.quota.max - r.quota.used))} of transfer left.`); return route(); }
+      case "quota": { const r = await api("POST", "/api/mega/quota"); toast(`${fmtBytes(Math.max(0, r.quota.max - r.quota.used))} of transfer left.` + (r.quota.storage_max ? ` Storage: ${fmtBytes(r.quota.storage_used)} of ${fmtBytes(r.quota.storage_max)} used.` : "")); return route(); }
       case "undo": {
         if (!confirm("Undo this move? Files go back to the work folder and anything replaced comes back from the recycle folder.")) return;
         const r = await api("POST", `/api/history/${d.id}/undo`);

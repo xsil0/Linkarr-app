@@ -1,0 +1,16 @@
+# docker compose --env-file .env -f docker-compose.example.yml up -d
+services:
+  linkarr:
+    image: ghcr.io/xsil0/linkarr:latest
+    container_name: linkarr
+    restart: unless-stopped
+    ports:
+      - "9040:9040"
+    environment:
+      - TZ=${TZ:-UTC}
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - LA_COOKIE_SECURE=${LA_COOKIE_SECURE:-1}
+    volumes:
+      - ${APPDATA_DIR}:/data
+      - ${MEDIA_DIR}:/media

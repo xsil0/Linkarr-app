@@ -1,0 +1,6 @@
+# Versions the tests ran against. Bump together and re-run pytest.
+fastapi==0.143.5
+uvicorn==0.53.0
+httpx==0.28.1
+python-multipart==0.0.32
+cryptography==50.0.2

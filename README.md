@@ -75,7 +75,9 @@ handles links **you** already have, from a file host. Think of it as the import-
 - **Fix show.** For something already filed under the wrong show, History → **Fix show** moves it into
   the right show and season folder and deletes the old folders once they're empty. A folder with
   anything else still in it is left alone.
-- **Search before you download.** Library search shows which library has a title and which seasons.
+- **Do I already have it?** Library lists every folder you have and filters as you type, with seasons on
+  disk, whether it's tracked and what's missing. **Search TMDB** covers what isn't there.
+- **Title cards.** No poster yet? The show gets a card in its own muted colour with its name on it.
 - **Check, save, done.** Saving a draft's details starts the download; the details fold away until
   you open them again.
 - **Several links, one show.** Add more links to a show and, if you like, wait for all of them
@@ -119,7 +121,7 @@ handles links **you** already have, from a file host. Think of it as the import-
   on Activity with **Open link**. Solve it, then paste the MEGA link back: reply to the bot's message, or use
   the box on the job. The job then carries on as usual. One reminder if it's still waiting a day later. List the
   captcha sites you use in Settings → Downloads; none are built in.
-- **Library search puts yours first.** Search a title (or tap **Find** on a show in the Tracker) and the
+- **TMDB search puts yours first.** Search a title (or tap **Find** on a show in the Tracker) and the
   show you have comes first, with the episodes you're missing. Other titles by that name, like spinoffs,
   are listed below under "Similar names you don't have".
 - **Extras (all off until you turn them on in Settings → Downloads):**
@@ -176,7 +178,7 @@ services:
       - TZ=Europe/Rome          # your time zone
       - PUID=1000               # user and group that own your media folders
       - PGID=1000
-      - LA_COOKIE_SECURE=1      # 0 only if you open it over plain http
+      # - LA_COOKIE_SECURE=1   # leave unset: HTTPS-only when you open it over HTTPS
     volumes:
       - ./linkarr-data:/data    # database, keys, MEGA session, logs, backups
       - /path/to/media:/media   # the one folder that holds Movies, TV Shows and so on
@@ -212,7 +214,7 @@ MEGA session. See [SECURITY.md](SECURITY.md).
 | `TZ` | `UTC` | time zone (download window, summaries, log times) |
 | `PUID` / `PGID` | `99` / `100` | user and group Linkarr runs as (Unraid's defaults) |
 | `LA_PORT` | `9040` | web port |
-| `LA_COOKIE_SECURE` | `1` | `0` to sign in over plain http |
+| `LA_COOKIE_SECURE` | unset | unset: the sign-in cookie is HTTPS-only when you open Linkarr over HTTPS, and plain http on your home network works too. `1` always HTTPS-only, `0` never |
 | `LA_SESSION_HOURS` | `336` | how long a sign-in lasts |
 | `LA_TRUSTED_PROXIES` | `*` | addresses whose `X-Forwarded-For` is believed (for the sign-in lockout). Set it to your reverse proxy's address if Linkarr can be reached other than through it |
 
@@ -255,7 +257,7 @@ and it isn't affiliated with any of those services.
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m pytest -q
-LA_DATA=./data LA_MEDIA=./media LA_COOKIE_SECURE=0 python -m linkarr
+LA_DATA=./data LA_MEDIA=./media python -m linkarr
 ```
 
 The tests use fakes for MEGA, TMDB, Telegram and Plex; nothing touches the internet.

@@ -39,6 +39,7 @@ class Worker:
         self.last_quota = 0.0
         self.last_plex = 0.0
         self.last_minute = 0.0
+        self.poster_tried: set[int] = set()  # shows TMDB had no poster for, not asked again until a restart
         self.plex_waits = (45, 90, 180, 300)  # seconds between looks for a new download in Plex
         self.side_tasks: set = set()  # subtitle lookups running after a move
         self.speed: dict[int, tuple[float, int, float]] = {}
@@ -95,6 +96,7 @@ class Worker:
         if t - self.last_shows > 3600:
             self.last_shows = t
             await self.check_shows()
+            await self.fill_posters()
             await self.check_movies()
             await asyncio.to_thread(self.maintenance)
             await self.weekly_roundup()
@@ -142,6 +144,40 @@ class Worker:
             room -= 1
             self.downloads[link["id"]] = asyncio.create_task(self.download(dict(link)))
 
+    @staticmethod
+    def _unpack_room(link: dict) -> int:
+        """Extra room an archive needs while it unpacks: the archive and what comes out of it sit side by side."""
+        return sum(int(f.get("size", 0)) for f in json.loads(link.get("files") or "[]")
+                   if f.get("selected", True) and files.is_archive(f["path"]))
+
+    def _space_short(self, link: dict, staging: Path, need: int, free: int) -> tuple[str, int, int] | None:
+        """Is there room for this download, counting the downloads already running and room to unpack?
+        Returns (which drive, bytes wanted, bytes free) when there isn't."""
+        spare = 1024**3
+        others = [dict(r) for r in self.db.query("SELECT * FROM links WHERE status = 'downloading' AND id != ?", (link["id"],))]
+        running = sum(max(0, r["size"] - r["bytes_done"]) + self._unpack_room(r) for r in others)
+        want = need + self._unpack_room(link) + running + spare
+        if free < want:
+            return "download drive", want, free
+        job = self.db.one("SELECT * FROM jobs WHERE id = ?", (link["job_id"],))
+        try:
+            target = jobs.target_path(self.ctx, dict(job)) if job else None
+        except jobs.JobError:
+            target = None
+        if not target:
+            return None
+        probe = target
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        try:
+            if probe.stat().st_dev == staging.stat().st_dev:
+                return None  # same drive, already counted
+            lib_free = shutil.disk_usage(probe).free
+        except OSError:
+            return None
+        lib_want = link["size"] + spare
+        return ("library drive", lib_want, lib_free) if lib_free < lib_want else None
+
     async def download(self, link: dict) -> None:
         lid, job_id = link["id"], link["job_id"]
         staging = jobs.work_dir(self.ctx) / "links" / str(lid)
@@ -152,13 +188,16 @@ class Worker:
         except OSError as e:
             self._link_failed(link, "error", f"Can't write to the work folder: {e}")
             return
-        if need and free < need + 1024**3:
-            self.db.run("UPDATE links SET not_before=? WHERE id=?", (now() + 1800, lid))
-            if add_alert(self.db, "space", "Not enough free space",
-                         f"{link['name']} needs {need / 1024**3:.1f} GB and the media share has {free / 1024**3:.1f} GB free. "
-                         "It will try again every 30 minutes.", job_id, lid):
-                await self._notify_alert(job_id, lid, "space")
-            return
+        if need:
+            short = self._space_short(link, staging, need, free)
+            if short:
+                where, want, have = short
+                self.db.run("UPDATE links SET not_before=? WHERE id=?", (now() + 1800, lid))
+                if add_alert(self.db, "space", "Not enough free space",
+                             f"{link['name']} needs {want / 1024**3:.1f} GB on the {where} and it has "
+                             f"{have / 1024**3:.1f} GB free. It will try again every 30 minutes.", job_id, lid):
+                    await self._notify_alert(job_id, lid, "space")
+                return
         short, left = self._quota_short(need)
         if short:
             self.db.run("UPDATE links SET not_before=? WHERE id=?", (now() + 3600, lid))
@@ -275,16 +314,16 @@ class Worker:
         self._link_failed(link, e.kind, str(e))
         await self._notify_alert(link["job_id"], lid, e.kind)
 
-    def _link_failed(self, link: dict, kind: str, message: str) -> None:
+    def _link_failed(self, link: dict, kind: str, message: str, title: str = "") -> None:
         self.db.run("UPDATE links SET status='error', error_kind=?, error=? WHERE id=?", (kind, message[:500], link["id"]))
         titles = {
-            "integrity": "A download got stuck",
+            "integrity": "A download kept failing MEGA's file check",
             "dead": "This link is dead",
             "missing": "MEGAcmd is missing",
             "unpack": "Couldn't unpack it",
             "novideo": "No video in this download",
         }
-        add_alert(self.db, kind if kind in titles else "error", titles.get(kind, "A download failed"),
+        add_alert(self.db, kind if kind in titles else "error", title or titles.get(kind, "A download failed"),
                   message if link["name"] and link["name"] in message else f"{link['name']}: {message}",
                   link["job_id"], link["id"])
 
@@ -328,11 +367,11 @@ class Worker:
                     try:
                         await files.probe(f)
                     except ValueError as e:
-                        self._link_failed(link, "integrity", str(e))
+                        self._link_failed(link, "integrity", str(e), "This video won't play")
                         await self._notify_alert(link["job_id"], lid, "integrity")
                         return
         except OSError as e:
-            self._link_failed(link, "error", f"File problem: {e}")
+            self._link_failed(link, "error", f"File problem: {e}", "Couldn't read the downloaded files")
             return
         self.db.run("UPDATE links SET status='ready' WHERE id=?", (lid,))
 
@@ -425,9 +464,10 @@ class Worker:
         resolve_alerts(self.db, job_id=job["id"])
         log.info("Moved %s", summary)
         if job["kind"] == "series" and job["tmdb_id"]:
-            self.db.run("INSERT INTO shows (tmdb_id, name, folder, library_id) VALUES (?,?,?,?) "
-                        "ON CONFLICT(tmdb_id) DO UPDATE SET folder=excluded.folder, library_id=excluded.library_id, checked_at=0",
-                        (job["tmdb_id"], job["title"], target.name, job["library_id"]))
+            self.db.run("INSERT INTO shows (tmdb_id, name, folder, library_id, poster) VALUES (?,?,?,?,?) "
+                        "ON CONFLICT(tmdb_id) DO UPDATE SET folder=excluded.folder, library_id=excluded.library_id, checked_at=0, "
+                        "poster=CASE WHEN shows.poster = '' THEN excluded.poster ELSE shows.poster END",
+                        (job["tmdb_id"], job["title"], target.name, job["library_id"], job["poster"] or ""))
         if job["kind"] == "series":
             watch.after_move(self.db, job, target)
             if prefs.get(self.db, "gap_check"):
@@ -790,6 +830,30 @@ class Worker:
                 log.info("Show update: %s", text)
                 if self.ctx.notify and prefs.get(self.db, "notify_series"):
                     await self.ctx.notify.send(text)
+
+    async def fill_posters(self, limit: int = 200) -> int:
+        """Tracked shows without a poster (tracked before 1.1, or in bulk) get theirs, a couple of hundred an hour.
+        Coming up shows a title card until then."""
+        if not self.ctx.tmdb.configured():
+            return 0
+        n = 0
+        for show in self.db.query("SELECT tmdb_id, name FROM shows WHERE poster = '' ORDER BY watching DESC, next_air LIMIT ?",
+                                  (limit + len(self.poster_tried),)):
+            if show["tmdb_id"] in self.poster_tried or n >= limit:
+                continue
+            self.poster_tried.add(show["tmdb_id"])
+            try:
+                det = await self.ctx.tmdb.details("series", show["tmdb_id"])
+            except Exception as e:  # one bad lookup shouldn't stop the others
+                log.info("Poster for %s: %s", show["name"], e)
+                continue
+            if det.get("poster"):
+                self.db.run("UPDATE shows SET poster=? WHERE tmdb_id=? AND poster=''", (det["poster"], show["tmdb_id"]))
+                n += 1
+            await asyncio.sleep(0.05)
+        if n:
+            log.info("Found posters for %d tracked shows", n)
+        return n
 
     async def check_movies(self) -> None:
         """Movie Tracker: new Blu-ray, digital and streaming news, once a day per movie. The first check after

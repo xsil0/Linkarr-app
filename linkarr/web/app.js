@@ -30,6 +30,8 @@
   };
   // Your download site's icon: its 1-3 letter badge drawn like the line icons.
   const badgeIcon = (b) => `<span class="badge-ico" aria-hidden="true">${esc(b)}</span>`;
+  // The download site's own logo when you've added one (Settings → Accounts), else its letters.
+  const siteIcon = (site) => (site.logo ? `<img class="site-logo" src="${esc(site.logo)}" alt="" aria-hidden="true">` : badgeIcon(site.badge));
 
   // Updates el to match html, touching only the parts that changed. Replacing the whole page every
   // few seconds made it flicker, jump, restart animations and swallow clicks mid-redraw.
@@ -104,10 +106,18 @@
   const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const posterUrl = (p) => (p ? "/api/poster" + p : "");
   const badPosters = new Set();  // posters that failed once aren't asked for again on every refresh
+  // No poster (yet): a title card in a muted colour picked from the name, so the same show always gets the same
+  // colour. Big cards carry the whole name, small ones the first letter. The real poster covers it once it loads.
+  const tint = (t) => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 8; };
   const posterEl = (p, title, cls) => {
     const u = posterUrl(p);
+    const t = (title || "?").trim() || "?";
     const img = u && !badPosters.has(u) ? `<img src="${esc(u)}" alt="" loading="lazy" decoding="async">` : "";
-    return `<div class="poster ${cls || ""}" aria-hidden="true">${esc((title || "?").trim().charAt(0).toUpperCase())}${img}</div>`;
+    const named = /\b(lg|card)\b/.test(cls || "");
+    const longest = Math.max(...t.split(/\s+/).map((w) => w.length));
+    // The longest word sets the size, so words fit whole on the card whatever its width.
+    const label = named ? `<span class="name" style="--l:${Math.max(6, longest)}">${esc(t)}</span>` : esc(t.charAt(0).toUpperCase());
+    return `<div class="poster t${tint(t)} ${cls || ""}" aria-hidden="true">${label}${img}</div>`;
   };
   document.addEventListener("error", (e) => {
     const t = e.target;
@@ -168,7 +178,9 @@
 
   function renderSetup() {
     $("#app").innerHTML = `<div class="auth"><form class="card stack" id="setup-form">${brand()}
-      <p class="muted small">First run. The setup code is in the container log (Unraid: the Docker tab, click the icon, Logs).</p>${httpHint()}
+      <p class="muted small">First run. Linkarr wrote a setup code to its log so only you can make the account.</p>
+      <ol class="howto small"><li><b>Unraid:</b> Docker tab, click the Linkarr icon, Logs.</li><li><b>Other Docker:</b> run <span class="mono">docker logs linkarr</span>.</li>
+      <li>Find the line <span class="mono">use this setup code:</span> and copy the code after it.</li></ol>${httpHint()}
       <label class="f"><span>Setup code</span><input type="text" name="code" autocomplete="off" required></label>
       <label class="f"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
       <label class="f"><span>Password (10 or more characters)</span><input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
@@ -242,15 +254,15 @@
     const site = ov && ov.site;
     const items = NAV.filter(([r]) => r !== "history" || !site);
     morph(bar, items.map(([r, t, i]) => `<a href="#/${r}" data-route="${r}" class="${navKey(state.route.split("/")[0]) === r ? "on" : ""}">${ICON[i]}<span>${t}</span>${navBadge(r)}</a>`)
-      .concat(site ? [`<a href="${esc(site.url)}" target="_blank" rel="noopener noreferrer" class="site-tab">${badgeIcon(site.badge)}<span class="ellipsis">${esc(site.name)}</span></a>`] : [])
+      .concat(site ? [`<a href="${esc(site.url)}" target="_blank" rel="noopener noreferrer" class="site-tab">${siteIcon(site)}<span class="ellipsis">${esc(site.name)}</span></a>`] : [])
       .sort((a, b) => (a.includes("#/settings") ? 1 : 0) - (b.includes("#/settings") ? 1 : 0)).join(""));
   }
 
   function sideInfo(ov) {
     const site = ov.site;
-    morph($("#side-site"), site ? `<a class="site-btn" href="${esc(site.url)}" target="_blank" rel="noopener noreferrer">${badgeIcon(site.badge)}<span class="ellipsis">${esc(site.name)}</span>${ICON.ext}</a>` : "");
+    morph($("#side-site"), site ? `<a class="site-btn" href="${esc(site.url)}" target="_blank" rel="noopener noreferrer">${siteIcon(site)}<span class="ellipsis">${esc(site.name)}</span>${ICON.ext}</a>` : "");
     morph($("#side-foot"), `${quotaMeter(ov.quota)}
-      <div class="acct"><span class="dot ${ov.mega ? "ok" : ""}"></span><span class="ellipsis">${ov.mega ? esc(ov.mega) : "MEGA not signed in"}</span></div>
+      <div class="acct"><span class="dot ${ov.mega || ov.quota ? "ok" : ""}"></span><span class="ellipsis">${ov.mega ? esc(ov.mega) : ov.quota ? "MEGA signed in" : "MEGA not signed in"}</span></div>
       <div class="ver">v${esc(ov.version)}${ov.free != null ? " · " + fmtBytes(ov.free) + " free" : ""}</div>`);
     tabbar(ov);
     const n = needsYou(ov).length;
@@ -359,18 +371,22 @@
         <div class="meta">${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</div>
         ${useLabels && l.label && l.label !== name ? `<div class="muted small">In the post: ${esc(l.label)}</div>` : ""}
         ${l.group && !dead ? `<div class="alt">Same title in ${groups[l.group]} qualities. Pick one.</div>` : ""}
+        ${l.have && !dead ? `<div class="have-note">${ICON.check}<span>${esc(l.have)} Tick it to get it again.</span></div>` : ""}
         ${dead ? `<div class="err">${esc(l.error)}</div>` : ""}</div></label>`;
     };
     const capRow = (u, i) => `<label class="pick"><input type="checkbox" data-cap="${i}" checked><div class="grow"><div class="name">Captcha link</div>
       <div class="meta"><span>${esc(u.split("/")[2] || u)}</span></div><div class="muted small">Linkarr holds it for you to solve, then carries on with the MEGA link you paste back.</div></div></label>`;
     const d = document.createElement("dialog");
     d.className = "picker";
-    d.innerHTML = `<div class="head"><div class="label acc">${links.length + caps.length} link${links.length + caps.length === 1 ? "" : "s"} in this post</div><h2>Pick what to add</h2></div>
+    const nHave = links.filter((l) => l.have && !l.error).length;
+    const nNew = links.filter((l) => !l.have && !l.error).length;
+    d.innerHTML = `<div class="head"><div class="label acc">${links.length + caps.length} link${links.length + caps.length === 1 ? "" : "s"} in this post</div><h2>Pick what to add</h2>
+      ${nHave ? `<div class="small muted">${nHave} you already have ${nHave === 1 ? "is" : "are"} left unticked. ${nNew} ${nNew === 1 ? "is" : "are"} new.</div>` : ""}</div>
       <div class="body">${links.map(row).join("")}${caps.map(capRow).join("")}
         ${r.more ? `<div class="muted small" style="padding:10px 0">${r.more} more links weren't read. Add them in a second go.</div>` : ""}</div>
       <div class="foot"><label class="f"><span>Archive password${r.password ? " (found in the post)" : ", if the files are locked"}</span>
         <input type="text" id="pick-pass" value="${esc(r.password || "")}" autocomplete="off" spellcheck="false" placeholder="Leave empty to try your saved passwords"></label>
-        <div class="row"><button class="btn primary" data-pick="some">Add</button><button class="btn" data-pick="all">Add all</button><div class="grow"></div><button class="btn ghost" data-pick="no">Cancel</button></div></div>`;
+        <div class="row"><button class="btn primary" data-pick="some">Add</button><button class="btn" data-pick="all">${nHave ? "Add all new" : "Add all"}</button><div class="grow"></div><button class="btn ghost" data-pick="no">Cancel</button></div></div>`;
     document.body.appendChild(d);
     const boxes = () => $$("input[type=checkbox]", d);
     const count = () => {
@@ -390,7 +406,8 @@
       if (!b) { if (e.target === d) close(); return; }
       if (b.dataset.pick === "no") return close();
       const all = b.dataset.pick === "all";
-      const picked = boxes().filter((x) => !x.disabled && (all || x.checked));
+      // Add all never re-downloads what you have, unless you ticked it yourself.
+      const picked = boxes().filter((x) => !x.disabled && (x.checked || (all && !(x.dataset.i != null && links[+x.dataset.i].have))));
       const items = picked.filter((x) => x.dataset.i != null).map((x) => links[+x.dataset.i]);
       const cs = picked.filter((x) => x.dataset.cap != null).map((x) => caps[+x.dataset.cap]);
       const pw = $("#pick-pass", d).value.trim();
@@ -464,6 +481,8 @@
     state.route = path;
     $$("#nav a, #tabbar a[data-route]").forEach((a) => a.classList.toggle("on", a.dataset.route === navKey(path.split("/")[0])));
     $("#top-extra").innerHTML = "";
+    // Library and History have their own search; one box at the top is enough.
+    const pb = $("#paste"); if (pb) pb.hidden = ["library", "history"].includes(path.split("/")[0]);
     $(".main").classList.toggle("no-paste", navKey(path.split("/")[0]) === "settings");
     const pages = { "": renderActivity, library: renderLibrary, tracker: renderTracker, shows: renderTracker, history: renderHistory, settings: renderSettings,
       decode: () => renderSettings(new URLSearchParams("tab=system")), check: () => renderSettings(new URLSearchParams("tab=check")), logs: () => renderSettings(new URLSearchParams("tab=system")) };
@@ -577,7 +596,7 @@
       buttons = `<a class="btn sm primary" href="#/job/${a.job_id}">Open</a>`;
     }
     buttons += `<button class="btn sm ghost" data-action="dismiss" data-alert="${a.id}">Dismiss</button>`;
-    const label = { integrity: "Damaged", dead: "Link gone", error: "Download failed", auth: "MEGA sign-in", space: "Disk full", unpack: "Couldn't unpack",
+    const label = { integrity: "Damaged", dead: "Link gone", error: "Download failed", auth: "MEGA sign-in", space: "Low on space", unpack: "Couldn't unpack",
       novideo: "No video", plex: "Plex", inbox: "Inbox", match: "Same title?", conflict: "Already have it", recheck: "Check the title", show: "Which show" }[a.kind] || "Needs you";
     return `<div class="card alert ${cls}"><span class="ic">${cls === "info" ? ICON.info : ICON.warn}</span><div class="grow">
       <div class="spread"><span class="label ${cls === "bad" ? "bad" : "acc"}">${esc(label)}</span><span class="when">${fmtAgo(a.created_at)}</span></div>
@@ -957,28 +976,81 @@
   }
 
   // ---------- library ----------
+  // Everything you have, filtered as you type: no network per key press. Enter (or the button under the list)
+  // asks TMDB, for what isn't in your library and for a show's seasons.
   async function renderLibrary(q) {
     title("Library");
-    const lib = q.get("lib");
-    if (!state.overview) { try { state.overview = await api("GET", "/api/overview"); sideInfo(state.overview); } catch (e) { /* chips are optional */ } }
-    const libs = (state.overview && state.overview.libraries) || [];
-    page().innerHTML = (libs.length ? `<div class="chips section">${libs.map((l) => `<a class="chip ${String(l.id) === lib ? "on" : ""}" href="#/library?lib=${l.id}">${esc(l.name)} <span class="n">${l.count}</span></a>`).join("")}</div>` : "") +
-      `<form class="row section lib-search" id="lib-form"><span class="lib-ico">${ICON.search}</span><input type="search" id="lib-q" placeholder="Search for a movie or show before you download it" style="flex:1" value="${esc(q.get("q") || "")}"><button class="btn">Search</button></form><div id="lib-out"></div>`;
+    const lib = q.get("lib") || "";
+    state.libSel = lib;
+    page().innerHTML = `<form class="row section lib-search" id="lib-form"><span class="lib-ico">${ICON.search}</span>
+      <input type="search" id="lib-q" placeholder="Type a name: do I have it?" style="flex:1" value="${esc(q.get("q") || "")}" autocomplete="off" aria-label="Filter your library"><button class="btn">Search TMDB</button></form>
+      <div class="chips section" id="lib-chips"></div><div id="lib-list"></div><div id="lib-out"></div>`;
     $("#lib-form").addEventListener("submit", (e) => { e.preventDefault(); libSearch($("#lib-q").value, $("#lib-q").value === q.get("q") ? q.get("tmdb") : ""); });
-    if (q.get("q")) libSearch(q.get("q"), q.get("tmdb"));
-    else if (lib) libFolders(parseInt(lib, 10));
-    else $("#lib-out").innerHTML = `<div class="empty"><b>Do I already have it?</b>Search here before you grab a link. You'll see which library has it and, for shows, which seasons.</div>`;
+    $("#lib-q").addEventListener("input", () => { $("#lib-out").innerHTML = ""; drawLibList(); });
+    if (!state.libRows) $("#lib-list").innerHTML = `<div class="muted small">Reading your libraries…</div>`;
+    try { state.libRows = await api("GET", "/api/library/folders"); } catch (e) { $("#lib-list").innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    if (state.route !== "library") return;
+    drawLibList();
+    if (q.get("q") && q.get("tmdb")) libSearch(q.get("q"), q.get("tmdb"));
   }
 
-  async function libFolders(id) {
-    const out = $("#lib-out");
-    const l = ((state.overview && state.overview.libraries) || []).find((x) => x.id === id);
+  const libKey = (r) => r.library_id + "|" + r.folder;
+  function drawLibList() {
+    const rows = state.libRows || [];
+    const text = ($("#lib-q") || {}).value || "";
+    const words = norm(text).split(" ").filter(Boolean);
+    const libs = [];
+    rows.forEach((r) => { if (!libs.find((l) => l.id === r.library_id)) libs.push({ id: r.library_id, name: r.library, n: 0 }); });
+    const match = rows.filter((r) => { const n = norm(r.folder + " " + (r.title || "")); return words.every((w) => n.includes(w)); });
+    match.forEach((r) => { libs.find((l) => l.id === r.library_id).n += 1; });
+    const sel = state.libSel && libs.find((l) => String(l.id) === state.libSel) ? state.libSel : "";
+    morph($("#lib-chips"), libs.length > 1 ? [`<button class="chip ${sel ? "" : "on"}" data-action="lib-chip" data-id="">All <span class="n">${match.length}</span></button>`]
+      .concat(libs.map((l) => `<button class="chip ${String(l.id) === sel ? "on" : ""}" data-action="lib-chip" data-id="${l.id}">${esc(l.name)} <span class="n">${l.n}</span></button>`)).join("") : "");
+    const shown = match.filter((r) => !sel || String(r.library_id) === sel);
+    const cap = 150;
+    if (!rows.length) { $("#lib-list").innerHTML = `<div class="empty"><b>No folders yet</b>Add your libraries in Settings, Libraries.</div>`; return; }
+    const ask = text.trim() ? `<div class="row section" style="gap:10px;align-items:center"><span class="muted small">${shown.length ? "Not the one?" : `Nothing called "${esc(text.trim())}" in your library.`}</span>
+      <button class="btn sm" data-action="lib-tmdb">Search TMDB for "${esc(text.trim())}"</button></div>` : "";
+    $("#lib-list").innerHTML = `<div class="list have-list">${shown.slice(0, cap).map(haveRow).join("")}</div>
+      ${shown.length > cap ? `<div class="muted small section">Showing ${cap} of ${shown.length}. Type a few letters to narrow it down.</div>` : ""}${ask}`;
+  }
+  const norm = (t) => (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+  function haveRow(r) {
+    const tags = [];
+    if (r.kind === "series" && r.seasons) tags.push(`<span class="chip static">${r.seasons} season${r.seasons === 1 ? "" : "s"}</span>`);
+    if (r.tracked) tags.push(`<span class="tag ok">Tracked</span>`);
+    if (r.missing) tags.push(`<span class="tag warn">${esc(r.missing)}</span>`);
+    const open = state.libOpen === libKey(r);
+    return `<div class="li have-row${open ? " open" : ""}">${posterEl(r.poster, r.title || r.folder.replace(/\s*\(\d{4}\)\s*$/, ""), "xs")}
+      <div class="grow" style="min-width:0"><button class="have-name" data-action="lib-open" data-k="${esc(libKey(r))}" aria-expanded="${open}">
+        <span class="ellipsis">${esc(r.folder)}</span><span class="muted small">${esc(r.library)}</span></button>
+        ${tags.length ? `<div class="have-tags">${tags.join("")}</div>` : ""}
+        ${open ? `<div class="have-more" id="lib-more">${state.libMore || `<div class="muted small">Loading…</div>`}</div>` : ""}</div></div>`;
+  }
+
+  async function libOpen(k) {
+    if (state.libOpen === k) { state.libOpen = null; return drawLibList(); }
+    state.libOpen = k; state.libMore = "";
+    drawLibList();
+    const r = (state.libRows || []).find((x) => libKey(x) === k);
+    if (!r) return;
+    let html;
     try {
-      const folders = await api("GET", `/api/libraries/${id}/folders`);
-      title(l ? l.name : "Library");
-      out.innerHTML = `<div class="muted small section">${folders.length} folder${folders.length === 1 ? "" : "s"}${l ? " in " + esc(l.path) : ""}</div>
-        <div class="list">${folders.map((f) => `<div class="li"><span class="grow ellipsis">${esc(f)}</span><a class="small" href="#/library?q=${encodeURIComponent(f.replace(/\s*\(\d{4}\)\s*$/, ""))}">Look up</a></div>`).join("") || '<div class="li muted">Empty.</div>'}</div>`;
-    } catch (e) { out.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+      const d = await api("GET", `/api/library/folder?lib=${r.library_id}&name=${encodeURIComponent(r.folder)}`);
+      const seasons = Object.entries(d.seasons || {});
+      const name = r.title || r.folder.replace(/\s*\(\d{4}\)\s*$/, "");
+      const btns = r.kind === "series"
+        ? (r.tmdb_id ? `<button class="btn sm" data-action="show" data-id="${r.tmdb_id}" data-name="${esc(name)}" data-folder="${esc(r.folder)}" data-lib="${r.library_id}">Seasons and news</button>` : "")
+          + `<button class="btn sm" data-action="lib-tmdb" data-q="${esc(name)}">${r.tmdb_id ? "Look on TMDB" : "Find on TMDB"}</button>`
+        : `<button class="btn sm" data-action="lib-tmdb" data-q="${esc(name)}">Look on TMDB</button>`;
+      html = (seasons.length ? `<div class="chips">${seasons.map(([n, c]) => `<span class="chip static have" title="${c} files">S${n} <span class="n">${c}</span></span>`).join("")}</div>`
+        : r.kind === "series" ? `<div class="muted small">No episode files found.</div>` : d.size ? `<div class="muted small">${fmtBytes(d.size)}</div>` : "")
+        + `<div class="row" style="gap:8px;margin-top:8px">${btns}</div>` + (r.tmdb_id ? `<div class="show-box" id="show-${r.tmdb_id}"></div>` : "");
+    } catch (e) { html = `<div class="err">${esc(e.message)}</div>`; }
+    if (state.libOpen !== k) return;
+    state.libMore = html;
+    const box = $("#lib-more"); if (box) box.innerHTML = html;
   }
 
   // Yours first (the show you came from in the Tracker on top, with what's missing), then other titles by
@@ -994,8 +1066,9 @@
       if (!rows.length) { out.innerHTML = `<div class="empty"><b>Nothing found</b>Try a shorter name.</div>`; return; }
       const mine = rows.filter((r) => r.group !== "similar"), similar = rows.filter((r) => r.group === "similar");
       const group = (head, list) => list.length ? `<h2 class="section-head">${head}</h2><div class="results section">${list.map(resultCard).join("")}</div>` : "";
-      out.innerHTML = similar.length && mine.length ? group("In your library", mine) + group("Similar names you don't have", similar)
-        : `<div class="results">${rows.map(resultCard).join("")}</div>`;
+      out.innerHTML = `<h2 class="section-head">From TMDB</h2>` + (similar.length && mine.length ? group("In your library", mine) + group("Similar names you don't have", similar)
+        : `<div class="results">${rows.map(resultCard).join("")}</div>`);
+      out.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) { out.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
 
@@ -1006,7 +1079,7 @@
     const more = r.id && r.kind === "series" ? `<button class="btn sm" data-action="show" data-id="${r.id}" data-name="${esc(r.title)}" data-folder="${esc(r.have ? r.have.folder : "")}" data-lib="${r.have ? r.have.library_id : ""}">Seasons and news</button>`
       : r.id && r.kind === "movie" && !r.have ? `<button class="btn sm" data-action="track-movie" data-id="${r.id}">Track release</button>` : "";
     const missing = r.missing ? `<div class="small gap">${esc(r.missing)}</div>` : "";
-    return `<div class="result${r.pinned ? " pinned" : ""}"><div class="job-body"><div><b>${esc(r.title)}</b> ${r.year ? `<span class="yr">${r.year}</span>` : ""}</div>
+    return `<div class="result${r.pinned ? " pinned" : ""}">${posterEl(r.poster, r.title, "md")}<div class="job-body"><div><b>${esc(r.title)}</b> ${r.year ? `<span class="yr">${r.year}</span>` : ""}</div>
       <div class="meta">${r.kind ? `<span>${r.kind === "movie" ? "Movie" : "Series"}</span>` : ""}${r.documentary ? '<span class="tag acc">Documentary</span>' : ""}</div>
       ${have}${seasons}${missing}<div class="row">${more}</div><div class="show-box" id="show-${r.id}"></div></div></div>`;
   }
@@ -1017,12 +1090,12 @@
     box.innerHTML = `<div class="muted small">Loading…</div>`;
     try {
       const d = await api("GET", "/api/shows/" + id);
-      const card = btn.closest(".result");
+      const card = btn.closest(".result, .have-more");
       const onDisk = new Set($$(".chip.have", card).map((c) => parseInt(c.textContent.slice(1), 10)));
-      box.innerHTML = `<div class="small"><span class="tag ${d.status === "Ended" || d.status === "Canceled" ? "" : "ok"}">${esc(d.status || "Unknown")}</span>
-        ${d.next_air ? ` Next episode ${esc(d.next_air)}` : ""}</div>
+      box.innerHTML = `<div class="small"><span class="tag ${d.status === "Ended" || d.status === "Canceled" ? "" : "ok"}">${esc(showStatus(d.status))}</span>
+        ${d.next_air ? ` Next episode ${esc(airDate(d.next_air))}` : ""}</div>
         <div class="chips" style="margin-top:6px">${d.seasons.map((s) => `<span class="chip static ${onDisk.has(s.season) ? "have" : "miss"}" title="${s.episodes} episodes">S${s.season}</span>`).join("")}</div>
-        <label class="check small"><input type="checkbox" data-action="watch" data-id="${id}" data-name="${esc(btn.dataset.name)}" data-folder="${esc(btn.dataset.folder)}" data-lib="${esc(btn.dataset.lib)}" ${d.watching ? "checked" : ""}>
+        <label class="check small"><input type="checkbox" data-action="watch" data-id="${id}" data-name="${esc(btn.dataset.name)}" data-folder="${esc(btn.dataset.folder)}" data-lib="${esc(btn.dataset.lib)}" data-poster="${esc(d.poster || "")}" ${d.watching ? "checked" : ""}>
         <span>Tell me when a season starts, a finale airs, or the show ends</span></label>`;
       btn.remove();
     } catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -1111,7 +1184,7 @@
         <button class="btn primary" data-action="track-all" ${imp.running ? "disabled" : ""}>${ICON.plus}Track all my series</button></div>
         <div id="track-all">${trackAllBox(imp)}</div>` + comingUp(rows) + (rows.length
         ? `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Series you track</h2><span class="count num">${rows.length}</span></div></div>` + showFilter(rows) + `<div class="list shows">${rows.filter((s) => !state.gapsOnly || s.missing).map((s) => `<div class="li"><div class="grow"><b>${esc(s.name)}</b>
-          <div class="muted small">${esc(s.status || "Not checked yet")}${s.next_air ? " · next episode " + esc(s.next_air) : ""}${s.seasons ? ` · ${s.seasons} season${s.seasons === 1 ? "" : "s"}` : ""}</div>
+          <div class="muted small">${esc(showStatus(s.status))}${s.next_air ? " · next episode " + esc(airDate(s.next_air)) : ""}${s.seasons ? ` · ${s.seasons} season${s.seasons === 1 ? "" : "s"}` : ""}</div>
           ${s.missing ? `<div class="small gap">${esc(s.missing)}</div>` : s.checked ? `<div class="small have-all">You have every episode</div>` : ""}</div>
           ${s.missing ? `<a class="btn sm" href="#/library?q=${encodeURIComponent(s.name)}&tmdb=${s.tmdb_id}">Find</a>` : ""}
           <button class="btn sm ghost" data-action="unwatch" data-id="${s.tmdb_id}">Stop</button></div>`).join("")}</div></div>`
@@ -1120,15 +1193,31 @@
     } catch (e) { page().innerHTML = trackerTabs("series") + `<div class="err">${esc(e.message)}</div>`; }
   }
 
+  // One way to write a show's dates and status everywhere: "Today", "Sun, Nov 15"; "Airing", not TMDB's "Returning Series".
+  const airDate = (iso) => {
+    const d = new Date(iso + "T00:00:00"); if (isNaN(d)) return iso;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const n = Math.round((d - today) / 864e5);
+    if (n === 0) return "Today";
+    if (n === 1) return "Tomorrow";
+    if (n === -1) return "Yesterday";
+    const opts = { weekday: "short", day: "numeric", month: "short" };
+    if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  };
+  const SHOW_STATUS = { "Returning Series": "Airing", "In Production": "Coming back", Planned: "Announced", Ended: "Ended", Canceled: "Canceled", Pilot: "Pilot" };
+  const s_iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const showStatus = (st) => SHOW_STATUS[st] || st || "Not checked yet";
+
   // The next two weeks of new episodes for shows you track, each with a small poster.
   function comingUp(rows) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const soon = rows.filter((s) => s.next_air).map((s) => ({ s, d: new Date(s.next_air + "T00:00:00") }))
       .filter((x) => !isNaN(x.d) && x.d >= today && (x.d - today) / 864e5 <= 14).sort((a, b) => a.d - b.d).slice(0, 12);
     if (!soon.length) return "";
-    const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? "TODAY" : n === 1 ? "TOMORROW" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).toUpperCase(); };
+    const when = (d) => airDate(s_iso(d)).toUpperCase();
     return `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Coming up</h2><span class="count num">next 14 days</span></div></div>
-      <div class="coming">${soon.map(({ s, d }) => `<div class="it">${posterEl(s.poster, s.name)}<div class="when">${esc(when(d))}</div><div class="t">${esc(s.name)}</div></div>`).join("")}</div></div>`;
+      <div class="coming">${soon.map(({ s, d }) => `<div class="it">${posterEl(s.poster, s.name, "card")}<div class="when">${esc(when(d))}</div><div class="t">${esc(s.name)}</div></div>`).join("")}</div></div>`;
   }
 
   function showFilter(rows) {
@@ -1155,22 +1244,25 @@
   function unmatchedRow(m, i) {
     const key = m.library_id + "|" + m.folder, f = state.trackFind[key];
     const hits = f ? (f.html || "") : "";
-    return `<div class="li" style="flex-wrap:wrap"><div class="grow ellipsis">${esc(m.folder)} <span class="muted small">${esc(m.library)}</span></div>
+    const inside = m.from_files ? `<div class="muted tiny">The files inside say <b>${esc(m.from_files)}</b></div>` : "";
+    return `<div class="li" style="flex-wrap:wrap"><div class="grow" style="min-width:0"><div class="ellipsis">${esc(m.folder)} <span class="muted small">${esc(m.library)}</span></div>${inside}</div>
       ${f ? "" : `<button class="btn sm" data-action="track-find" data-i="${i}">Find</button>`}
       ${f ? `<div class="find-wrap"><form class="row" data-track-find="${i}"><input type="search" value="${esc(f.q)}" style="flex:1 1 200px;width:auto" autocomplete="off" aria-label="Show to search for"><button class="btn sm">Search</button></form>
-        <div class="find">${hits}</div></div>` : ""}</div>`;
+        <div class="find">${hits}</div>
+        <label class="check small"><input type="checkbox" data-action="track-rename" data-i="${i}" ${f.rename ? "checked" : ""}> Also rename the folder to the show's name</label>
+        ${f.rename ? `<div class="muted tiny">Plex picks up the new name on its next scan. If Sonarr also manages this show, change its path there too.</div>` : ""}</div>` : ""}</div>`;
   }
   async function trackFind(i, q) {
     const m = (state.imp.unmatched || [])[i];
     if (!m) return;
     const key = m.library_id + "|" + m.folder;
-    state.trackFind[key] = { q, html: `<div class="muted small">Searching…</div>` };
+    state.trackFind[key] = { q, rename: !!(state.trackFind[key] || {}).rename, html: `<div class="muted small">Searching…</div>` };
     redrawTrackAll();
     try {
       const hits = await api("GET", "/api/tmdb/search?kind=series&q=" + encodeURIComponent(q));
       state.trackFind[key].html = hits.length ? hits.slice(0, 5).map((h) => `<div class="hit">${posterEl(h.poster, h.title, "xs")}<div class="grow"><b>${esc(h.title)}</b> ${h.year ? `<span class="yr">${h.year}</span>` : ""}
           <div class="muted tiny desc">${esc(h.overview || "")}</div></div>
-          <button class="btn sm primary" data-action="track-pick" data-i="${i}" data-id="${h.id}" data-name="${esc(h.title)}">Track this</button></div>`).join("")
+          <button class="btn sm primary" data-action="track-pick" data-i="${i}" data-id="${h.id}" data-name="${esc(h.title)}" data-year="${h.year || ""}" data-poster="${esc(h.poster || "")}">Track this</button></div>`).join("")
         : `<div class="muted small">Nothing found. Try fewer words.</div>`;
     } catch (e) { state.trackFind[key].html = `<div class="err">${esc(e.message)}</div>`; }
     redrawTrackAll();
@@ -1253,12 +1345,35 @@
   const setSec = (title, about, fields, tag) => `<section class="set"><div class="about"><h2>${title}</h2>${about ? `<p>${about}</p>` : ""}${tag || ""}</div><div class="fields">${fields}</div></section>`;
   const saveBar = () => `<div class="savebar" id="savebar"><button class="btn primary" data-action="save-all">Save changes</button><span class="note" id="save-note">Nothing changed yet.</span></div>`;
 
+  // Download site logo: a small square picture shown in place of the icon letters.
+  function siteLogoRow() {
+    const site = (state.overview && state.overview.site) || null;
+    const now = site && site.logo ? `<img class="site-logo lg" src="${esc(site.logo)}" alt="Current logo">` : `<span class="badge-ico lg" aria-hidden="true">${esc(site ? site.badge : "?")}</span>`;
+    return `<div class="logo-row"><div class="logo-prev">${now}</div><div class="grow"><div class="lbl">Logo</div>
+      <div class="muted small">A small square picture (PNG, JPEG, WebP, GIF or ICO, up to 512 KB). It replaces the icon letters.</div>
+      <div class="row" style="gap:8px;margin-top:8px"><label class="btn sm file-btn">${site && site.logo ? "Change logo" : "Upload a logo"}<input type="file" id="site-logo" class="vh" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon"></label>
+      ${site && site.logo ? `<button class="btn sm" data-action="site-logo-remove">Remove</button>` : ""}</div></div></div>`;
+  }
+  const redrawLogo = () => { const row = $(".logo-row"); if (row) row.outerHTML = siteLogoRow(); };
+  async function siteLogoUpload(input) {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    const fd = new FormData(); fd.append("file", f);
+    try {
+      await api("POST", "/api/site-logo", fd, true);
+      state.overview = await api("GET", "/api/overview"); sideInfo(state.overview);
+      toast("Logo saved."); redrawLogo();
+    } catch (e) { toast(e.message); input.value = ""; }
+  }
+  document.addEventListener("change", (e) => { if (e.target.id === "site-logo") siteLogoUpload(e.target); });
+
   async function renderSettings(q) {
     title("Settings");
     let tab = q.get("tab") || "check";
     tab = OLD_TABS[tab] || tab;
     if (tab === "check") return renderCheck();
     try { state.settings = await api("GET", "/api/settings"); } catch (e) { page().innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    if (!state.overview) { try { state.overview = await api("GET", "/api/overview"); } catch (e) { /* the logo preview only */ } }
     const s = state.settings;
     const p = s.prefs;
     let html = settingsTabs(tab);
@@ -1294,7 +1409,8 @@
         secret("tmdb_key", "TMDB key"), isSet("tmdb_key"));
       html += setSec("Download site", "The site you get links from. It shows in the menu and the phone's bottom bar and opens in a new tab.",
         `<div class="grid3">${field("site_name", "Name", "text", 'placeholder="My site" maxlength="40"')}${field("site_url", "Address", "url", 'placeholder="https://…"')}${field("site_badge", "Icon letters", "text", 'placeholder="MS" maxlength="3"')}</div>
-        <div class="muted small">Leave the icon letters empty to use the capitals in the name.</div>`);
+        <div class="muted small">Leave the icon letters empty to use the capitals in the name.</div>
+        ${siteLogoRow()}`);
       html += setSec("Send to Linkarr", "Send a whole post from the forum page in one tap. Linkarr shows the links it found and you pick which to add.", sendToLinkarr(p));
     } else if (tab === "servers") {
       html += setSec("Plex", "Plex scans the right library when something lands, and Linkarr checks it showed up.",
@@ -1529,6 +1645,10 @@
         await api("POST", `/api/links/${d.link}/files`, { selected: sel }); toast("Saved."); return;
       }
       case "show": return showBox(el);
+      case "lib-open": return libOpen(d.k);
+      case "site-logo-remove": await api("DELETE", "/api/site-logo"); state.overview = await api("GET", "/api/overview"); sideInfo(state.overview); toast("Logo removed."); return redrawLogo();
+      case "lib-chip": state.libSel = d.id || ""; state.libOpen = null; history.replaceState(null, "", "#/library" + (d.id ? "?lib=" + d.id : "")); return drawLibList();
+      case "lib-tmdb": { const q = d.q || $("#lib-q").value; return libSearch(q, ""); }
       case "start-all": {
         const r = await api("POST", "/api/jobs/start-all", { when: d.when });
         toast(`${d.when === "tonight" ? "Scheduled" : "Started"} ${r.started}.${r.skipped ? ` ${r.skipped} still need a library.` : ""}`);
@@ -1548,7 +1668,7 @@
         try { await navigator.clipboard.writeText(t); toast("Copied."); } catch (e) { toast("Couldn't copy. Select it and copy."); }
         return;
       }
-      case "watch": await api("POST", `/api/shows/${d.id}/watch`, { watching: el.checked, name: d.name, folder: d.folder, library_id: d.lib ? parseInt(d.lib, 10) : null }); toast(el.checked ? "You'll get news about this show." : "Stopped."); return;
+      case "watch": await api("POST", `/api/shows/${d.id}/watch`, { watching: el.checked, name: d.name, folder: d.folder, library_id: d.lib ? parseInt(d.lib, 10) : null, poster: d.poster || "" }); toast(el.checked ? "You'll get news about this show." : "Stopped."); return;
       case "gaps": state.gapsOnly = d.v === "1"; return renderShows();
       case "track-movie": {
         const m = await api("POST", "/api/movies", { tmdb_id: parseInt(d.id, 10) });
@@ -1568,11 +1688,14 @@
       case "track-find": { const m = state.imp.unmatched[+d.i]; return trackFind(+d.i, m.query || m.folder); }
       case "track-pick": {
         const m = state.imp.unmatched[+d.i];
-        await api("POST", `/api/shows/${d.id}/watch`, { watching: true, name: d.name, folder: m.folder, library_id: m.library_id });
-        toast(`Tracking ${d.name}.`);
+        const f = state.trackFind[m.library_id + "|" + m.folder] || {};
+        const r = await api("POST", `/api/shows/${d.id}/watch`, { watching: true, name: d.name, folder: m.folder, library_id: m.library_id,
+          poster: d.poster || "", rename: !!f.rename, year: d.year ? parseInt(d.year, 10) : null });
+        toast(r.note ? `Tracking ${d.name}. ${r.note}` : r.folder && r.folder !== m.folder ? `Tracking ${d.name}. Folder renamed to ${r.folder}.` : `Tracking ${d.name}.`);
         delete state.trackFind[m.library_id + "|" + m.folder];
         return renderShows();
       }
+      case "track-rename": { const m = state.imp.unmatched[+d.i], f = state.trackFind[m.library_id + "|" + m.folder]; if (f) { f.rename = el.checked; redrawTrackAll(); } return; }
       case "track-all": el.disabled = true; await api("POST", "/api/shows/track-all"); return renderShows();
       case "unwatch": await api("POST", `/api/shows/${d.id}/watch`, { watching: false }); return renderShows();
       case "refile": return refileBox(el);
@@ -1643,7 +1766,7 @@
 
   document.addEventListener("click", async (e) => {
     const el = e.target.closest("[data-action]");
-    if (!el || (el.tagName === "INPUT" && el.type === "checkbox" && e.type === "click" && el.dataset.action !== "watch")) return;
+    if (!el || (el.tagName === "INPUT" && el.type === "checkbox" && e.type === "click" && !["watch", "track-rename"].includes(el.dataset.action))) return;
     if (el.tagName === "A") return;
     const a = e.target.closest("a");
     if (a && el.contains(a)) return;  // a link inside a tappable row goes where it says

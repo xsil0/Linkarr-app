@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.1.0
+
+### New
+
+- **Title cards.** A show or movie without a poster gets a card in a muted colour picked from its name
+  (the same show always gets the same colour), with the name on it, until the poster arrives. In Coming
+  up, History and everywhere else a poster shows.
+- **Posters for tracked shows.** Tracking a show saves its poster right away. Shows tracked before this
+  update get theirs over the first few hours.
+- **Library is a list you filter as you type.** Every folder in every library, with how many seasons
+  are on disk, whether it's tracked, and what's missing. Tap one for its seasons and episode counts.
+  **Search TMDB** is still there for what isn't in your library.
+- **Track all my series:** a folder it can't match says what the episode files inside call the show,
+  and Find searches for that. **Also rename the folder to the show's name** (off unless you tick it).
+- **Your download site's logo:** upload a small picture in Settings → Accounts to show instead of the
+  icon letters.
+- **Back to the same thread for its new links:** the link picker leaves unticked what you already have,
+  either links you downloaded before or titles (and seasons) already in a library folder, and says so.
+  Tick one to get it again.
+- Posters on TMDB search results in Library.
+
+### Changed
+
+- **Free space check** counts every download that's running, leaves room to unpack archives (about
+  double their size), and checks the library drive too when it's a different disk. The alert says
+  which drive is short.
+- **Sign-in works over plain http** on your home network with nothing to set. Over HTTPS the cookie is
+  still HTTPS-only. `LA_COOKIE_SECURE=1` makes it HTTPS-only always, `0` never.
+- The first-run page says step by step where to find the setup code.
+- The paste bar is off Library and History, which have their own search.
+- Show dates read the same everywhere ("Sun, Nov 15"), and show status is in plain words ("Airing"
+  instead of TMDB's "Returning Series").
+- Alert titles say what went wrong ("This video won't play", not "A download got stuck").
+- The menu no longer says "MEGA not signed in" under the MEGA allowance meters.
+
 ## 1.0.2
 
 - MEGA storage (used of total) shows under the transfer allowance in the menu, and in

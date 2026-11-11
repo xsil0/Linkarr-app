@@ -6,6 +6,7 @@ check and edit, then gets queued. The worker (worker.py) downloads, unpacks and 
 A captcha link (captcha.py) is held as a job with status 'needs_captcha' and no links until you
 paste back the MEGA link; then a normal draft takes its place.
 """
+import asyncio
 import json
 import logging
 import os
@@ -1022,9 +1023,10 @@ def _fix_filed(ctx: Ctx, hid: int, show: dict) -> dict:
                     show["folder"], now(), job["id"]))
         _fix_link_seasons(ctx.db, job["id"])
     if show["tmdb_id"]:
-        ctx.db.run("INSERT INTO shows (tmdb_id, name, folder, library_id) VALUES (?,?,?,?) "
-                   "ON CONFLICT(tmdb_id) DO UPDATE SET folder=excluded.folder, library_id=excluded.library_id, checked_at=0",
-                   (show["tmdb_id"], title, show["folder"], lib["id"]))
+        ctx.db.run("INSERT INTO shows (tmdb_id, name, folder, library_id, poster) VALUES (?,?,?,?,?) "
+                   "ON CONFLICT(tmdb_id) DO UPDATE SET folder=excluded.folder, library_id=excluded.library_id, checked_at=0, "
+                   "poster=CASE WHEN shows.poster = '' THEN excluded.poster ELSE shows.poster END",
+                   (show["tmdb_id"], title, show["folder"], lib["id"], show.get("poster") or ""))
     old_lib = next((x for x in libraries(ctx.db) if old_base.parent == lib_dir(ctx.cfg, x)), None)
     return {"moved": n, "where": str(new_base), "problems": problems,
             "sections": [x["plex_section"] for x in (old_lib, lib) if x and x["plex_section"]]}
@@ -1252,6 +1254,49 @@ def show_query(folder: str) -> str:
     return t.strip() or folder.strip()
 
 
+def name_from_files(show_dir: Path, limit: int = 60) -> str:
+    """The show's name as the episode files inside a folder spell it ('Gannibal.S01E03.1080p.mkv' → 'Gannibal'):
+    the most common name among files that carry an episode number, '' when they don't say."""
+    seen: dict[str, int] = {}
+    n = 0
+    for f in files.walk_files(show_dir) if show_dir.is_dir() else []:
+        if not is_video(f.name):
+            continue
+        n += 1
+        if n > limit:
+            break
+        p = parse_name(f.name)
+        if p["season"] is None or not p["title"] or len(p["title"]) < 2:
+            continue
+        key = p["title"] + (f" {p['year']}" if p["year"] else "")
+        seen[key] = seen.get(key, 0) + 1
+    return max(seen, key=seen.get) if seen else ""
+
+
+def rename_show_folder(ctx: Ctx, library_id: int, folder: str, title: str, year: int | None) -> str:
+    """Renames a show folder in a series library to the show's real name ('Title (Year)' by your naming pattern).
+    Returns the new folder name. Refuses when a folder with that name is already there."""
+    lib = library(ctx.db, library_id)
+    if not lib or lib["kind"] != "series":
+        raise JobError("That library isn't a series library.")
+    base = lib_dir(ctx.cfg, lib)
+    if not folder or "/" in folder or folder in (".", ".."):
+        raise JobError("That folder isn't in the library.")
+    src = base / folder
+    if not src.is_dir():
+        raise JobError(f"{folder} isn't in {lib['name']} any more.")
+    name = naming.show_folder(title, year, prefs.get(ctx.db, "show_pattern"))
+    if name == folder:
+        return folder
+    dst = base / name
+    if dst.exists() and dst.resolve() != src.resolve():
+        raise JobError(f"There's already a folder called {name} in {lib['name']}. Tracked it under {folder} instead.")
+    src.rename(dst)
+    ctx.db.run("UPDATE shows SET folder=? WHERE library_id=? AND folder=?", (name, library_id, folder))
+    log.info("Renamed show folder %s to %s", src, dst)
+    return name
+
+
 async def track_existing(ctx: Ctx, progress=None) -> dict:
     """Adds every show folder in your series libraries to the Series Tracker. A folder is only added when
     TMDB has a near-exact match; the rest come back in 'unmatched' so you can pick them by hand.
@@ -1279,11 +1324,16 @@ async def track_existing(ctx: Ctx, progress=None) -> dict:
             log.warning("Series Tracker: %s: %s", folder, e)
         if hit:
             # INSERT OR IGNORE: a show you stopped tracking stays stopped.
-            n = ctx.db.run("INSERT OR IGNORE INTO shows (tmdb_id, name, folder, library_id, watching, notified) VALUES (?,?,?,?,1,?)",
-                           (hit["id"], hit["title"], folder, lib["id"], '{"_quiet": 1}')).rowcount
+            n = ctx.db.run("INSERT OR IGNORE INTO shows (tmdb_id, name, folder, library_id, watching, notified, poster) "
+                           "VALUES (?,?,?,?,1,?,?)",
+                           (hit["id"], hit["title"], folder, lib["id"], '{"_quiet": 1}', hit.get("poster") or "")).rowcount
             out["added"] += n
         else:
-            out["unmatched"].append({"folder": folder, "library": lib["name"], "library_id": lib["id"], "query": title})
+            inside = await asyncio.to_thread(name_from_files, lib_dir(ctx.cfg, lib) / folder)
+            if inside and naming.norm(show_query(inside)) == naming.norm(title):
+                inside = ""  # the files say what the folder says
+            out["unmatched"].append({"folder": folder, "library": lib["name"], "library_id": lib["id"],
+                                     "query": show_query(inside) if inside else title, "from_files": inside})
         out["done"] += 1
         if progress:
             progress(out)

@@ -20,8 +20,9 @@ tool on your server:
 
 - **Keep it on your own network.** Reach it from outside through a VPN such as Tailscale or WireGuard.
   Don't forward its port on your router and don't put it on a public tunnel.
-- **Use HTTPS** (a reverse proxy or `tailscale serve`). The sign-in cookie is marked secure by default;
-  `LA_COOKIE_SECURE=0` is only for plain http on a trusted home network.
+- **Use HTTPS** (a reverse proxy or `tailscale serve`). Opened over HTTPS, the sign-in cookie is
+  marked secure. Plain http works on your home network so a first setup isn't stuck at the sign-in;
+  set `LA_COOKIE_SECURE=1` if you only ever use HTTPS, so the cookie never goes over plain http.
 - **One account.** The first visit needs the setup code from the container log. After that there are
   no sign-ups. Passwords are at least 10 characters and stored hashed. Five wrong tries from one
   address (twenty from all addresses) lock sign-in for a while, and the setup code is locked the same

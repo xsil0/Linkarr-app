@@ -1,7 +1,7 @@
 # docker compose --env-file .env -f docker-compose.example.yml up -d
 services:
   linkarr:
-    image: ghcr.io/xsil0/linkarr:latest
+    image: ghcr.io/xsil0/linkarr-app:latest
     container_name: linkarr
     restart: unless-stopped
     ports:

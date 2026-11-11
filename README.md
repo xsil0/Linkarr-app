@@ -167,7 +167,7 @@ link protectors won't be accepted.
 ```yaml
 services:
   linkarr:
-    image: ghcr.io/xsil0/linkarr:latest
+    image: ghcr.io/xsil0/linkarr-app:latest
     container_name: linkarr
     restart: unless-stopped
     ports:

@@ -1,6 +1,6 @@
 # Running Linkarr on Unraid
 
-The image is `ghcr.io/xsil0/linkarr`, built by GitHub Actions on every push to `main`.
+The image is `ghcr.io/xsil0/linkarr-app`, built by GitHub Actions on every push to `main`.
 
 | Tag | What |
 |---|---|
@@ -15,7 +15,7 @@ Docker → **Add Container**, **Advanced View** on:
 | Field | Value |
 |---|---|
 | Name | `Linkarr` |
-| Repository | `ghcr.io/xsil0/linkarr:latest` |
+| Repository | `ghcr.io/xsil0/linkarr-app:latest` |
 | Network Type | `Bridge` |
 | WebUI | `http://[IP]:[PORT:9040]` |
 

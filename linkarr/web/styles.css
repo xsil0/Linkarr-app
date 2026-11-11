@@ -173,6 +173,13 @@ a.chip { color: var(--soft); }
 .poster.lock { border: 1px dashed var(--accent); background: transparent; }
 .poster.lock svg { width: 16px; height: 16px; color: var(--accent); stroke-width: 1.8; }
 .poster.unknown { border: 1px dashed var(--line2); background: transparent; }
+/* Title cards: shown until (or instead of) a real poster. Muted, dark enough for light text in both themes. */
+.poster.t0 { background: #1f3b3a; } .poster.t1 { background: #3b1d1f; } .poster.t2 { background: #222a36; } .poster.t3 { background: #3a301a; }
+.poster.t4 { background: #2e3320; } .poster.t5 { background: #2f2236; } .poster.t6 { background: #1d2f3b; } .poster.t7 { background: #3b2a1d; }
+.poster[class*=" t"] { color: rgba(236, 235, 230, .78); }
+.poster.unknown, .poster.lock { color: var(--faint); }
+.poster .name { align-self: end; justify-self: start; padding: 10px; font: 900 22px/0.95 var(--display); color: #ecebe6; text-transform: uppercase; overflow-wrap: anywhere; text-align: left; }
+.poster.lg .name { font-size: 20px; }
 .job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .job-title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .job-title a { color: inherit; }
@@ -398,3 +405,23 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   .picker .body { padding: 0 16px; }
   .savebar { bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Library: the filter list */
+.lib-list .li { align-items: flex-start; }
+.lib-name { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; min-height: 44px; justify-content: center; cursor: pointer; min-width: 0; }
+.lib-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lib-name:hover .ellipsis { color: var(--accent); }
+.lib-name .ellipsis { font-weight: 600; }
+.lib-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.lib-tags .chip { padding: 2px 8px; font-size: 12px; }
+.lib-more { padding: 10px 0 4px; }
+.lib-row.open { background: var(--panel); }
+.result > .poster { align-self: flex-start; }
+.howto { margin: 0 0 4px; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+.howto b { color: var(--text); font-weight: 600; }
+.site-logo { width: 18px; height: 18px; object-fit: contain; flex: none; display: block; }
+.site-logo.lg, .badge-ico.lg { width: 44px; height: 44px; font-size: 18px; }
+.badge-ico.lg { background: var(--panel2); color: var(--accent); }
+.logo-row { display: flex; gap: 14px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
+.logo-row .grow { min-width: 200px; }
+.logo-prev { flex: none; padding-top: 22px; }

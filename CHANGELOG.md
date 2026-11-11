@@ -1,11 +1,35 @@
 # Changelog
 
-## 1.0.2
+## 1.1.0
 
+### New
+
+- **Title cards.** A show or movie without a poster gets a card in a muted colour picked from its name
+  (the same show always gets the same colour), with the name on it, until the poster arrives. In Coming
+  up, History and everywhere else a poster shows.
+- **Posters for tracked shows.** Tracking a show saves its poster right away. Shows tracked before this
+  update get theirs over the first few hours.
+- **Library is a list you filter as you type.** Every folder in every library, with how many seasons
+  are on disk, whether it's tracked, and what's missing. Tap one for its seasons and episode counts.
+  **Search TMDB** is still there for what isn't in your library.
+- **Track all my series:** a folder it can't match says what the episode files inside call the show,
+  and Find searches for that. **Also rename the folder to the show's name** (off unless you tick it).
+- **Your download site's logo:** upload a small picture in Settings → Accounts to show instead of the
+  icon letters.
+- Posters on TMDB search results in Library.
 - MEGA storage (used of total) shows under the transfer allowance in the menu, and in
   **Check the allowance now**.
-- Long show descriptions in search results wrap to two lines instead of running off the screen, so
-  **Track this** and **Use this** stay in view.
+
+### Changed
+
+- **Free space check** counts every download that's running, leaves room to unpack archives (about
+  double their size), and checks the library drive too when it's a different disk. The alert says
+  which drive is short.
+- **Sign-in works over plain http** on your home network with nothing to set. Over HTTPS the cookie is
+  still HTTPS-only. `LA_COOKIE_SECURE=1` makes it HTTPS-only always, `0` never.
+- The first-run page says step by step where to find the setup code.
+- Long show descriptions in search results wrap to two lines, so **Track this** and **Use this** stay
+  in view.
 
 ## 1.0.1
 

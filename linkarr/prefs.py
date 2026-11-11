@@ -180,7 +180,8 @@ def site(db: Database) -> dict | None:
         return None
     name = get(db, "site_name") or "Site"
     badge = get(db, "site_badge") or "".join(c for c in name if c.isupper())[:3] or name[:1].upper()
-    return {"name": name, "url": url, "badge": badge}
+    logo = db.get_setting("site_logo")
+    return {"name": name, "url": url, "badge": badge, "logo": f"/api/site-logo?v={logo['v']}" if logo else ""}
 
 
 def archive_passwords(db: Database, title: str = "", year=None) -> list[str]:

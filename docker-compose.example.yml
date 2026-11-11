@@ -10,7 +10,7 @@ services:
       - TZ=${TZ:-UTC}
       - PUID=${PUID:-99}
       - PGID=${PGID:-100}
-      - LA_COOKIE_SECURE=${LA_COOKIE_SECURE:-1}
+      - LA_COOKIE_SECURE=${LA_COOKIE_SECURE:-}
     volumes:
       - ${APPDATA_DIR}:/data
       - ${MEDIA_DIR}:/media

@@ -100,7 +100,7 @@ def test_overview_has_site_and_only_finished(client):
     assert client.get("/api/overview").json()["site"] is None
     client.put("/api/settings", json={"site_name": "Site", "site_url": "https://example.org"}, headers=H)
     ov = client.get("/api/overview").json()
-    assert ov["site"] == {"name": "Site", "url": "https://example.org", "badge": "S"}
+    assert ov["site"] == {"name": "Site", "url": "https://example.org", "badge": "S", "logo": ""}
     assert ov["setup_issues"] >= 1  # no libraries yet
     db = client.app.state.ctx.db
     for st in ("done", "canceled"):

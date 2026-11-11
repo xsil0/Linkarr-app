@@ -49,9 +49,9 @@ tailscale serve --bg --https=11443 http://localhost:9040
 Then open `https://<server>.<tailnet>.ts.net:11443`. Don't use `tailscale funnel` and don't forward
 the port on your router: Linkarr has your MEGA session in it.
 
-To use plain `http://<server-ip>:9040` on your home network instead, add the variable
-`LA_COOKIE_SECURE` = `0`. Without it, signing in over plain http just brings you back to the
-sign-in form (the page says so).
+Plain `http://<server-ip>:9040` on your home network works too, with nothing to set. If you only
+ever use HTTPS, you can add the variable `LA_COOKIE_SECURE` = `1` so the sign-in never travels
+over plain http.
 
 ## 3. First run
 

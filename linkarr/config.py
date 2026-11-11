@@ -18,7 +18,7 @@ class Config:
     media_dir: Path
     port: int
     worker: bool
-    cookie_secure: bool
+    cookie_secure: bool | None  # None: HTTPS-only when the request came in over HTTPS
     session_hours: int
     default_tz: str
     mega_bin: str = ""  # folder holding the mega-* commands; empty = on PATH
@@ -50,6 +50,15 @@ class Config:
         # means a container update doesn't sign you out.
         return self.data_dir / "megacmd"
 
+    @property
+    def site_logo_path(self) -> Path:
+        return self.data_dir / "site-logo"
+
+
+def _tri(v: str) -> bool | None:
+    v = v.strip().lower()
+    return True if v in ("1", "true", "yes") else False if v in ("0", "false", "no") else None
+
 
 def load() -> Config:
     return Config(
@@ -57,7 +66,7 @@ def load() -> Config:
         media_dir=Path(os.environ.get("LA_MEDIA", "/media")),
         port=_int("LA_PORT", 9040),
         worker=os.environ.get("LA_WORKER", "1") != "0",
-        cookie_secure=os.environ.get("LA_COOKIE_SECURE", "1") != "0",
+        cookie_secure=_tri(os.environ.get("LA_COOKIE_SECURE", "")),
         session_hours=max(1, _int("LA_SESSION_HOURS", 24 * 14)),
         default_tz=os.environ.get("TZ", "UTC"),
         mega_bin=os.environ.get("LA_MEGA_BIN", ""),

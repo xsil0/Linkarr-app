@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, auth, decode, files, jobs, logbuf, mediaserver, movietracker, post, prefs, roundup, tracker
+from . import __version__, auth, decode, files, jobs, logbuf, mediaserver, movietracker, naming, post, prefs, roundup, tracker
 from . import watch as folder_watch
 from .config import Config, load
 from .mediaserver import MediaServer
@@ -139,16 +139,21 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         user = auth.session_user(db, request.cookies.get(auth.COOKIE))
         return {"setup_needed": not auth.has_user(db), "signed_in": user is not None,
                 "username": user["username"] if user else None, "locked_for": auth.locked_for(db, ip_of(request)),
-                "cookie_secure": cfg.cookie_secure, "theme": prefs.get(db, "theme")}
+                "cookie_secure": _secure(request), "theme": prefs.get(db, "theme")}
 
     class Setup(BaseModel):
         code: str
         username: str = Field(min_length=1, max_length=60)
         password: str = Field(min_length=10, max_length=200)
 
-    def _set_cookie(resp: Response, token: str) -> None:
+    def _secure(request: Request) -> bool:
+        # LA_COOKIE_SECURE=1 or 0 decides; unset, the cookie is HTTPS-only when you came in over HTTPS
+        # (directly, or through a proxy in LA_TRUSTED_PROXIES that says so), so plain http on the LAN just works.
+        return cfg.cookie_secure if cfg.cookie_secure is not None else request.url.scheme == "https"
+
+    def _set_cookie(resp: Response, token: str, request: Request) -> None:
         resp.set_cookie(auth.COOKIE, token, max_age=cfg.session_hours * 3600, httponly=True,
-                        secure=cfg.cookie_secure, samesite="lax", path="/")
+                        secure=_secure(request), samesite="lax", path="/")
 
     @app.post("/api/auth/setup")
     async def setup(body: Setup, request: Request):
@@ -167,7 +172,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         auth.create_user(db, body.username.strip(), body.password)
         token = auth.login(db, body.username.strip(), body.password, cfg.session_hours, ip_of(request))
         resp = JSONResponse({"ok": True})
-        _set_cookie(resp, token)
+        _set_cookie(resp, token, request)
         return resp
 
     class Login(BaseModel):
@@ -187,7 +192,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
             await asyncio.sleep(1)
             raise HTTPException(401, "Wrong username or password.")
         resp = JSONResponse({"ok": True})
-        _set_cookie(resp, token)
+        _set_cookie(resp, token, request)
         return resp
 
     @app.post("/api/auth/logout")
@@ -477,6 +482,51 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
             raise HTTPException(404, "Not found.")
         return files.list_folders(jobs.lib_dir(cfg, lib))
 
+    _SEASON_DIR = re.compile(r"^(season|series|staffel|saison|temporada)\s*0*(\d{1,3})$", re.I)
+
+    def _library_rows(ctx) -> list[dict]:
+        shows = {(r["library_id"], r["folder"]): r for r in ctx.db.query(
+            "SELECT tmdb_id, name, folder, library_id, watching, poster, missing, status FROM shows")}
+        out = []
+        for lib in jobs.libraries(ctx.db):
+            base = jobs.lib_dir(cfg, lib)
+            for f in files.list_folders(base):
+                row = {"library_id": lib["id"], "library": lib["name"], "kind": lib["kind"], "folder": f,
+                       "year": naming.year_of(f), "seasons": 0, "tracked": False, "missing": "", "poster": "", "tmdb_id": None}
+                if lib["kind"] == "series":
+                    try:
+                        row["seasons"] = sum(1 for p in (base / f).iterdir() if p.is_dir() and _SEASON_DIR.match(p.name))
+                    except OSError:
+                        pass
+                    s = shows.get((lib["id"], f))
+                    if s:
+                        miss = json.loads(s["missing"] or "null")
+                        row.update({"tracked": bool(s["watching"]), "tmdb_id": s["tmdb_id"], "poster": s["poster"] or "",
+                                    "title": s["name"], "status": s["status"] or "", "missing": tracker.describe(miss) if miss else ""})
+                out.append(row)
+        return out
+
+    @app.get("/api/library/folders")
+    async def library_folders(request: Request):
+        """Every folder in every library, for the Library page's filter: seasons on disk (Season folders),
+        tracked or not, and what's missing for tracked shows."""
+        return await asyncio.to_thread(_library_rows, ctx_of(request))
+
+    @app.get("/api/library/folder")
+    async def library_folder(lib: int, name: str, request: Request):
+        """One folder opened in the Library list: seasons with how many video files each."""
+        ctx = ctx_of(request)
+        library = jobs.library(ctx.db, lib)
+        if library is None or not name or "/" in name or name in (".", ".."):
+            raise HTTPException(404, "Not found.")
+        path = jobs.lib_dir(cfg, library) / name
+        if not path.is_dir():
+            raise HTTPException(404, "That folder isn't there any more.")
+        if library["kind"] == "series":
+            seasons = await asyncio.to_thread(files.seasons_in, path)
+            return {"seasons": {str(k): v for k, v in seasons.items()}, "size": 0}
+        return {"seasons": {}, "size": await asyncio.to_thread(files.tree_size, path)}
+
     @app.get("/api/tmdb/search")
     async def tmdb_search(q: str, request: Request, kind: str | None = None):
         ctx = ctx_of(request)
@@ -529,6 +579,9 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         name: str = ""
         folder: str = ""
         library_id: int | None = None
+        poster: str = ""
+        rename: bool = False      # also rename the folder to the show's real name
+        year: int | None = None
 
     @app.post("/api/shows/{tmdb_id}/watch")
     async def watch(tmdb_id: int, body: Watch, request: Request):
@@ -537,10 +590,20 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         if imp and body.watching and body.folder:   # picked by hand from the folders Track all couldn't match
             imp["unmatched"] = [u for u in imp.get("unmatched", [])
                                 if not (u["folder"] == body.folder and u.get("library_id") == body.library_id)]
-        db.run("INSERT INTO shows (tmdb_id, name, folder, library_id, watching) VALUES (?,?,?,?,?) "
-               "ON CONFLICT(tmdb_id) DO UPDATE SET watching=excluded.watching",
-               (tmdb_id, body.name[:200] or str(tmdb_id), body.folder[:300], body.library_id, 1 if body.watching else 0))
-        return {"ok": True}
+        poster = body.poster if _POSTER.match(body.poster or "") else ""
+        folder, note = body.folder[:300], ""
+        if body.rename and body.watching and folder and body.library_id:
+            try:
+                folder = jobs.rename_show_folder(ctx_of(request), body.library_id, folder, body.name[:200], body.year)
+            except (JobError, OSError) as e:
+                note = str(e) if isinstance(e, JobError) else f"Couldn't rename the folder: {e}"
+        db.run("INSERT INTO shows (tmdb_id, name, folder, library_id, watching, poster) VALUES (?,?,?,?,?,?) "
+               "ON CONFLICT(tmdb_id) DO UPDATE SET watching=excluded.watching, "
+               "folder=CASE WHEN excluded.folder != '' THEN excluded.folder ELSE shows.folder END, "
+               "library_id=coalesce(excluded.library_id, shows.library_id), "
+               "poster=CASE WHEN shows.poster = '' THEN excluded.poster ELSE shows.poster END",
+               (tmdb_id, body.name[:200] or str(tmdb_id), folder, body.library_id, 1 if body.watching else 0, poster))
+        return {"ok": True, "folder": folder, "note": note}
 
     @app.get("/api/shows")
     async def shows(request: Request):
@@ -973,6 +1036,45 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         name = f"linkarr-backup-{time.strftime('%Y%m%d')}.json"
         return Response(json.dumps(data, indent=1), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    # ---- download site logo -------------------------------------------------------------------
+
+    _LOGO_TYPES = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF8", "image/gif"),
+                   (b"\x00\x00\x01\x00", "image/x-icon"))
+
+    def _logo_type(data: bytes) -> str:
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp"
+        return next((t for magic, t in _LOGO_TYPES if data.startswith(magic)), "")
+
+    @app.post("/api/site-logo")
+    async def site_logo_upload(request: Request, file: UploadFile = File(...)):
+        """A small picture for the download site's button, in place of the icon letters. PNG, JPEG, WebP, GIF
+        or ICO up to 512 KB. SVG isn't taken: it can carry script."""
+        data = await file.read(512 * 1024 + 1)
+        if len(data) > 512 * 1024:
+            raise HTTPException(400, "That picture is over 512 KB. A small square PNG works best.")
+        kind = _logo_type(data)
+        if not kind:
+            raise HTTPException(400, "Use a PNG, JPEG, WebP, GIF or ICO picture.")
+        cfg.site_logo_path.write_bytes(data)
+        ctx_of(request).db.set_setting("site_logo", {"type": kind, "v": now()})
+        return {"ok": True, "site": prefs.site(ctx_of(request).db)}
+
+    @app.delete("/api/site-logo")
+    async def site_logo_remove(request: Request):
+        ctx_of(request).db.set_setting("site_logo", None)
+        cfg.site_logo_path.unlink(missing_ok=True)
+        return {"ok": True}
+
+    @app.get("/api/site-logo")
+    async def site_logo(request: Request):
+        logo = ctx_of(request).db.get_setting("site_logo")
+        if not logo or not cfg.site_logo_path.exists():
+            raise HTTPException(404, "Not found.")
+        return FileResponse(cfg.site_logo_path, media_type=logo["type"],
+                            headers={"Cache-Control": "max-age=2592000", "X-Content-Type-Options": "nosniff",
+                                     "Content-Security-Policy": "default-src 'none'"})
 
     @app.post("/api/restore")
     async def restore(request: Request, file: UploadFile = File(...)):

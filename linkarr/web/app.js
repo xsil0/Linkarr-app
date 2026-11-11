@@ -114,7 +114,9 @@
     const t = (title || "?").trim() || "?";
     const img = u && !badPosters.has(u) ? `<img src="${esc(u)}" alt="" loading="lazy" decoding="async">` : "";
     const named = /\b(lg|card)\b/.test(cls || "");
-    const label = named ? `<span class="name">${esc(t)}</span>` : esc(t.charAt(0).toUpperCase());
+    const longest = Math.max(...t.split(/\s+/).map((w) => w.length));
+    // The longest word sets the size, so words fit whole on the card whatever its width.
+    const label = named ? `<span class="name" style="--l:${Math.max(6, longest)}">${esc(t)}</span>` : esc(t.charAt(0).toUpperCase());
     return `<div class="poster t${tint(t)} ${cls || ""}" aria-hidden="true">${label}${img}</div>`;
   };
   document.addEventListener("error", (e) => {
@@ -1002,22 +1004,22 @@
     if (!rows.length) { $("#lib-list").innerHTML = `<div class="empty"><b>No folders yet</b>Add your libraries in Settings, Libraries.</div>`; return; }
     const ask = text.trim() ? `<div class="row section" style="gap:10px;align-items:center"><span class="muted small">${shown.length ? "Not the one?" : `Nothing called "${esc(text.trim())}" in your library.`}</span>
       <button class="btn sm" data-action="lib-tmdb">Search TMDB for "${esc(text.trim())}"</button></div>` : "";
-    $("#lib-list").innerHTML = `<div class="list lib-list">${shown.slice(0, cap).map(libRow).join("")}</div>
+    $("#lib-list").innerHTML = `<div class="list have-list">${shown.slice(0, cap).map(haveRow).join("")}</div>
       ${shown.length > cap ? `<div class="muted small section">Showing ${cap} of ${shown.length}. Type a few letters to narrow it down.</div>` : ""}${ask}`;
   }
   const norm = (t) => (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
-  function libRow(r) {
+  function haveRow(r) {
     const tags = [];
     if (r.kind === "series" && r.seasons) tags.push(`<span class="chip static">${r.seasons} season${r.seasons === 1 ? "" : "s"}</span>`);
     if (r.tracked) tags.push(`<span class="tag ok">Tracked</span>`);
-    if (r.missing) tags.push(`<span class="tag warn">Missing ${esc(r.missing)}</span>`);
+    if (r.missing) tags.push(`<span class="tag warn">${esc(r.missing)}</span>`);
     const open = state.libOpen === libKey(r);
-    return `<div class="li lib-row${open ? " open" : ""}">${posterEl(r.poster, r.title || r.folder.replace(/\s*\(\d{4}\)\s*$/, ""), "xs")}
-      <div class="grow" style="min-width:0"><button class="lib-name" data-action="lib-open" data-k="${esc(libKey(r))}" aria-expanded="${open}">
+    return `<div class="li have-row${open ? " open" : ""}">${posterEl(r.poster, r.title || r.folder.replace(/\s*\(\d{4}\)\s*$/, ""), "xs")}
+      <div class="grow" style="min-width:0"><button class="have-name" data-action="lib-open" data-k="${esc(libKey(r))}" aria-expanded="${open}">
         <span class="ellipsis">${esc(r.folder)}</span><span class="muted small">${esc(r.library)}</span></button>
-        ${tags.length ? `<div class="lib-tags">${tags.join("")}</div>` : ""}
-        ${open ? `<div class="lib-more" id="lib-more">${state.libMore || `<div class="muted small">Loading…</div>`}</div>` : ""}</div></div>`;
+        ${tags.length ? `<div class="have-tags">${tags.join("")}</div>` : ""}
+        ${open ? `<div class="have-more" id="lib-more">${state.libMore || `<div class="muted small">Loading…</div>`}</div>` : ""}</div></div>`;
   }
 
   async function libOpen(k) {
@@ -1081,7 +1083,7 @@
     box.innerHTML = `<div class="muted small">Loading…</div>`;
     try {
       const d = await api("GET", "/api/shows/" + id);
-      const card = btn.closest(".result, .lib-more");
+      const card = btn.closest(".result, .have-more");
       const onDisk = new Set($$(".chip.have", card).map((c) => parseInt(c.textContent.slice(1), 10)));
       box.innerHTML = `<div class="small"><span class="tag ${d.status === "Ended" || d.status === "Canceled" ? "" : "ok"}">${esc(d.status || "Unknown")}</span>
         ${d.next_air ? ` Next episode ${esc(d.next_air)}` : ""}</div>
@@ -1324,10 +1326,10 @@
   function siteLogoRow() {
     const site = (state.overview && state.overview.site) || null;
     const now = site && site.logo ? `<img class="site-logo lg" src="${esc(site.logo)}" alt="Current logo">` : `<span class="badge-ico lg" aria-hidden="true">${esc(site ? site.badge : "?")}</span>`;
-    return `<div class="logo-row"><div class="logo-prev">${now}</div><div class="grow"><label class="f"><span>Logo</span>
-      <input type="file" id="site-logo" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon"></label>
-      <div class="muted small">A small square picture (PNG, JPEG, WebP, GIF or ICO, up to 512 KB). It replaces the icon letters.</div></div>
-      ${site && site.logo ? `<button class="btn sm" data-action="site-logo-remove">Remove</button>` : ""}</div>`;
+    return `<div class="logo-row"><div class="logo-prev">${now}</div><div class="grow"><div class="lbl">Logo</div>
+      <div class="muted small">A small square picture (PNG, JPEG, WebP, GIF or ICO, up to 512 KB). It replaces the icon letters.</div>
+      <div class="row" style="gap:8px;margin-top:8px"><label class="btn sm file-btn">${site && site.logo ? "Change logo" : "Upload a logo"}<input type="file" id="site-logo" class="vh" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon"></label>
+      ${site && site.logo ? `<button class="btn sm" data-action="site-logo-remove">Remove</button>` : ""}</div></div></div>`;
   }
   const redrawLogo = () => { const row = $(".logo-row"); if (row) row.outerHTML = siteLogoRow(); };
   async function siteLogoUpload(input) {

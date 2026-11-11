@@ -178,8 +178,10 @@ a.chip { color: var(--soft); }
 .poster.t4 { background: #2e3320; } .poster.t5 { background: #2f2236; } .poster.t6 { background: #1d2f3b; } .poster.t7 { background: #3b2a1d; }
 .poster[class*=" t"] { color: rgba(236, 235, 230, .78); }
 .poster.unknown, .poster.lock { color: var(--faint); }
-.poster .name { align-self: end; justify-self: start; padding: 10px; font: 900 22px/0.95 var(--display); color: #ecebe6; text-transform: uppercase; overflow-wrap: anywhere; text-align: left; }
-.poster.lg .name { font-size: 20px; }
+.poster .name { align-self: end; justify-self: start; padding: 10px; font: 900 22px/0.95 var(--display); color: #ecebe6; text-transform: uppercase; overflow-wrap: normal; word-break: normal; text-align: left; max-width: 100%; box-sizing: border-box; }
+.poster.card, .poster.lg { container-type: inline-size; }
+.poster .name { font-size: clamp(11px, calc((100cqw - 20px) / (var(--l, 6) * 0.37)), 26px); }
+.have-tags .tag + .tag { margin-left: 0; }
 .job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .job-title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .job-title a { color: inherit; }
@@ -407,15 +409,15 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 }
 
 /* Library: the filter list */
-.lib-list .li { align-items: flex-start; }
-.lib-name { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; min-height: 44px; justify-content: center; cursor: pointer; min-width: 0; }
-.lib-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.lib-name:hover .ellipsis { color: var(--accent); }
-.lib-name .ellipsis { font-weight: 600; }
-.lib-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.lib-tags .chip { padding: 2px 8px; font-size: 12px; }
-.lib-more { padding: 10px 0 4px; }
-.lib-row.open { background: var(--panel); }
+.have-list .li { align-items: flex-start; }
+.have-name { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; min-height: 44px; justify-content: center; cursor: pointer; min-width: 0; }
+.have-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.have-name:hover .ellipsis { color: var(--accent); }
+.have-name .ellipsis { font-weight: 600; }
+.have-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.have-tags .chip { padding: 2px 8px; font-size: 12px; }
+.have-more { padding: 10px 0 4px; }
+.have-row.open { background: var(--panel); }
 .result > .poster { align-self: flex-start; }
 .howto { margin: 0 0 4px; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
 .howto b { color: var(--text); font-weight: 600; }
@@ -424,4 +426,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .badge-ico.lg { background: var(--panel2); color: var(--accent); }
 .logo-row { display: flex; gap: 14px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
 .logo-row .grow { min-width: 200px; }
-.logo-prev { flex: none; padding-top: 22px; }
+.logo-prev { flex: none; }
+.logo-row .lbl { font-size: 13px; color: var(--soft); margin-bottom: 2px; }
+.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.file-btn { position: relative; cursor: pointer; }
+.file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Phone: Coming up is one row you swipe, not a tall grid */
+@media (max-width: 560px) {
+  .coming { display: flex; overflow-x: auto; scroll-snap-type: x proximity; margin: 0 -16px; padding: 14px 16px 4px; scrollbar-width: none; }
+  .coming::-webkit-scrollbar { display: none; }
+  .coming .it { flex: 0 0 112px; scroll-snap-align: start; }
+}

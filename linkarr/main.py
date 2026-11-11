@@ -68,6 +68,15 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
             app.state.worker = Worker(ctx)
             tasks.append(asyncio.create_task(app.state.worker.run(stop)))
             tasks.append(asyncio.create_task(tg.run(stop)))
+        if cfg.worker and hasattr(ctx.mega, "cmd"):
+            async def mega_hello():   # so the menu shows the MEGA account right after a restart
+                try:
+                    ctx.status["mega_email"] = await ctx.mega.cmd.whoami()
+                    if ctx.status["mega_email"] and not ctx.status.get("mega_quota"):
+                        ctx.status["mega_quota"] = await ctx.mega.quota()
+                except Exception as e:
+                    log.warning("Couldn't check the MEGA account at start: %s", e.__class__.__name__)
+            tasks.append(asyncio.create_task(mega_hello()))
         log.info("Linkarr %s started", __version__)
         yield
         stop.set()
@@ -524,6 +533,10 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     @app.post("/api/shows/{tmdb_id}/watch")
     async def watch(tmdb_id: int, body: Watch, request: Request):
         db = ctx_of(request).db
+        imp = getattr(request.app.state, "track_all", None)
+        if imp and body.watching and body.folder:   # picked by hand from the folders Track all couldn't match
+            imp["unmatched"] = [u for u in imp.get("unmatched", [])
+                                if not (u["folder"] == body.folder and u.get("library_id") == body.library_id)]
         db.run("INSERT INTO shows (tmdb_id, name, folder, library_id, watching) VALUES (?,?,?,?,?) "
                "ON CONFLICT(tmdb_id) DO UPDATE SET watching=excluded.watching",
                (tmdb_id, body.name[:200] or str(tmdb_id), body.folder[:300], body.library_id, 1 if body.watching else 0))
@@ -824,9 +837,14 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     @app.post("/api/mega/quota")
     async def mega_quota(request: Request):
         ctx = ctx_of(request)
+        if hasattr(ctx.mega, "cmd"):
+            ctx.status["mega_email"] = await ctx.mega.cmd.whoami()
+            if not ctx.status["mega_email"]:
+                raise HTTPException(400, "MEGA isn't signed in. Sign in under Settings → Accounts.")
         q = await ctx.mega.quota() if hasattr(ctx.mega, "quota") else None
-        if q:
-            q["at"] = now()
+        if not q:
+            raise HTTPException(502, "Signed in, but MEGA didn't send the allowance. The log (Settings → System) says why.")
+        q["at"] = now()
         ctx.status["mega_quota"] = q
         return {"quota": q}
 

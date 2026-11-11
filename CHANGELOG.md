@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1
+
+- Track all my series: folders it can't match now have **Find** and **Track this** right in the list.
+  Before, Find opened Library search, which had no way to track the folder.
+- Track all matches more folders: a year at the end without brackets ("Gannibal 2022") and a note
+  in brackets ("Family Plan (Korean)") no longer stop the match.
+- The menu shows the MEGA account right after a restart, not only after opening Setup check.
+- **Check the allowance now** reads the session MEGAcmd saves correctly, and says what went wrong
+  instead of "Sign in first" when you are signed in.
+
 ## 1.0.0
 
 First public release.

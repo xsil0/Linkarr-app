@@ -264,3 +264,34 @@ def test_saved_passwords_only_go_in_the_backup_with_keys(client):
     assert "archive_passwords" not in plain["prefs"] and "secrets" not in plain
     full = client.get("/api/backup?secrets=1").json()
     assert full["prefs"]["archive_passwords"]
+
+
+def test_show_folder_queries():
+    from linkarr.jobs import show_query
+    assert show_query("Anatomy of a Scandal 2022") == "Anatomy of a Scandal"
+    assert show_query("Family Plan (Korean)") == "Family Plan"
+    assert show_query("Evil (2019) [tvdb-1]") == "Evil"
+    assert show_query("Blade Runner 2049") == "Blade Runner 2049"
+    assert show_query("1923") == "1923"
+
+
+def test_session_ids_cut_the_id_out_of_the_saved_session():
+    from linkarr.mega import b64e, session_ids
+    sid = bytes(range(43))
+    plain = b64e(bytes(16) + sid)
+    assert session_ids(plain) == [plain, b64e(sid)]
+    versioned = b64e(b"\x01" + bytes(16) + sid)
+    assert b64e(sid) in session_ids(versioned)
+    assert session_ids("not base64 !!")[0] == "not base64 !!"
+
+
+def test_picking_an_unmatched_folder_by_hand_drops_it_from_the_list(client):
+    sign_up(client)
+    client.app.state.track_all = {"running": False, "total": 2, "done": 2, "added": 0, "error": "",
+                                  "unmatched": [{"folder": "Eric", "library": "TV", "library_id": 1, "query": "Eric"},
+                                                {"folder": "Gannibal 2022", "library": "TV", "library_id": 1, "query": "Gannibal"}]}
+    r = client.post("/api/shows/42/watch", json={"watching": True, "name": "Eric", "folder": "Eric", "library_id": 1}, headers=H)
+    assert r.status_code == 200
+    left = client.get("/api/shows/track-all").json()["unmatched"]
+    assert [u["folder"] for u in left] == ["Gannibal 2022"]
+    assert [s["name"] for s in client.get("/api/shows").json()] == ["Eric"]

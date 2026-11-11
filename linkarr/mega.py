@@ -103,6 +103,22 @@ def b64d(s: str) -> bytes:
     return base64.b64decode(s + "=" * (-len(s) % 4))
 
 
+def session_ids(session: str) -> list[str]:
+    """The ids to try for MEGA's API from what mega-session prints. MEGAcmd prints the whole saved session
+    (the account key, then the session id), so the id is cut out of it; the string as printed is tried first."""
+    out = [session]
+    try:
+        raw = b64d(session)
+    except Exception:
+        return out
+    for start in ((17, 16) if raw[:1] == b"\x01" else (16,)):
+        if len(raw) > start + 16:
+            cand = b64e(raw[start:])
+            if cand not in out:
+                out.append(cand)
+    return out
+
+
 def b64e(b: bytes) -> str:
     return base64.b64encode(b).decode().replace("+", "-").replace("/", "_").rstrip("=")
 
@@ -177,7 +193,15 @@ class PublicApi:
     async def transfer_quota(self, sid: str) -> dict | None:
         """{"used", "max"} in bytes for a signed-in account, or None when MEGA doesn't say. sid is MEGAcmd's
         session; it's only sent to MEGA, never logged or stored."""
-        res = await self._call({"a": "uq", "xfer": 1, "pro": 1}, {"sid": sid})
+        res, why = None, ""
+        for cand in session_ids(sid):
+            try:
+                res = await self._call({"a": "uq", "xfer": 1, "pro": 1}, {"sid": cand})
+                break
+            except MegaError as e:
+                why = str(e)
+        if res is None and why:
+            raise MegaError("error", why)
         if not isinstance(res, dict) or not res.get("mxfer"):
             return None
         used = int(res.get("caxfer") or 0) + int(res.get("csxfer") or 0)
@@ -403,7 +427,7 @@ class Mega:
         try:
             return await self.api.transfer_quota(sid)
         except MegaError as e:
-            log.info("Couldn't read the MEGA transfer quota: %s", e)
+            log.warning("Couldn't read the MEGA transfer quota: %s", e)
             return None
 
     async def close(self):

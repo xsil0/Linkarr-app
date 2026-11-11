@@ -1242,6 +1242,16 @@ async def search_library(ctx: Ctx, query: str, tmdb_id: int | None = None) -> li
 _TAGS = re.compile(r"\s*[\[{][^\]}]*[\]}]")  # '[tvdbid-123]', '{imdb-tt...}'
 
 
+def show_query(folder: str) -> str:
+    """What to search TMDB for, from a show folder's name: 'Anatomy of a Scandal 2022' → 'Anatomy of a Scandal',
+    'Family Plan (Korean)' → 'Family Plan', 'Evil (2019) [tvdb-1]' → 'Evil'."""
+    t = _TAGS.sub("", folder).strip()
+    t = re.sub(r"\s*\((19|20)\d{2}\)\s*$", "", t)
+    t = re.sub(r"\s*\([^)]*\)\s*$", "", t)            # '(Korean)', '(US)'
+    t = re.sub(r"\s+(19\d{2}|20[0-3]\d)\s*$", "", t)   # a bare year at the end ('Blade Runner 2049' stays)
+    return t.strip() or folder.strip()
+
+
 async def track_existing(ctx: Ctx, progress=None) -> dict:
     """Adds every show folder in your series libraries to the Series Tracker. A folder is only added when
     TMDB has a near-exact match; the rest come back in 'unmatched' so you can pick them by hand.
@@ -1255,13 +1265,13 @@ async def track_existing(ctx: Ctx, progress=None) -> dict:
     for lib, folder in todo:
         name = _TAGS.sub("", folder).strip()
         year = naming.year_of(name)
-        title = re.sub(r"\s*\((19|20)\d{2}\)\s*$", "", name).strip() or name
+        title = show_query(folder)
         hit = None
         try:
             hits = await ctx.tmdb.search(title, "series", year)
             if hits:
                 top = hits[0]
-                sc = naming.score(top["title"], name, top["year"])
+                sc = naming.score(top["title"], f"{title} ({year})" if year else title, top["year"])
                 # Same name, or a close name whose year matches the folder's year.
                 if sc >= naming.EXACT or (sc >= 0.86 and year and top["year"] and abs(top["year"] - year) <= 1):
                     hit = top
@@ -1273,7 +1283,7 @@ async def track_existing(ctx: Ctx, progress=None) -> dict:
                            (hit["id"], hit["title"], folder, lib["id"], '{"_quiet": 1}')).rowcount
             out["added"] += n
         else:
-            out["unmatched"].append({"folder": folder, "library": lib["name"]})
+            out["unmatched"].append({"folder": folder, "library": lib["name"], "library_id": lib["id"], "query": title})
         out["done"] += 1
         if progress:
             progress(out)

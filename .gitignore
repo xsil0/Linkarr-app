@@ -1,0 +1,49 @@
+# Your data never goes in git: the database, keys, MEGA session, logs, backups, downloads.
+data/
+media/
+*.db
+*.db-wal
+*.db-shm
+backups/
+posters/
+megacmd/
+.megaCmd/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secret.key
+
+# Video and archives dropped in the repo folder by mistake
+*.mkv
+*.mp4
+*.avi
+*.rar
+*.zip
+*.7z
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.bak
+*.orig
+
+# Test and coverage output
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.log

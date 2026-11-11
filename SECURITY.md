@@ -23,11 +23,17 @@ tool on your server:
 - **Use HTTPS** (a reverse proxy or `tailscale serve`). The sign-in cookie is marked secure by default;
   `LA_COOKIE_SECURE=0` is only for plain http on a trusted home network.
 - **One account.** The first visit needs the setup code from the container log. After that there are
-  no sign-ups. Passwords are at least 10 characters and stored hashed.
-- **Secrets stay in `/data`.** TMDB, Plex, Telegram and OpenSubtitles keys are entered in the app and
+  no sign-ups. Passwords are at least 10 characters and stored hashed. Five wrong tries from one
+  address (twenty from all addresses) lock sign-in for a while, and the setup code is locked the same
+  way. Forgot the password: `docker exec linkarr python -m linkarr reset-password`.
+- **Behind a reverse proxy**, set `LA_TRUSTED_PROXIES` to the proxy's address so the lockout counts
+  the real visitor and not the proxy.
+- **Secrets stay in `/data`.** TMDB, Plex, Jellyfin, Emby, Telegram and OpenSubtitles keys are entered in the app and
   encrypted at rest with `/data/secret.key`. Nothing personal is in the image or this repository.
   Back up `/data` somewhere private, and never commit it.
-- **Telegram.** The bot only answers the chat ids listed in Settings → Connections.
+- **Telegram.** The bot only answers the chat ids listed in Settings → Telegram.
+- **Send to Linkarr** only opens your Linkarr with the page's text. Nothing is added until you pick
+  links, so a link someone else crafts can't start a download.
 - **Logs** hide MEGA link keys and tokens, so they're safe to paste when asking for help.
 
 ## In scope

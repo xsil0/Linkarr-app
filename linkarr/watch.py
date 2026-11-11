@@ -2,7 +2,7 @@
 episode to the same folder) is checked on a schedule. Only files Linkarr hasn't seen before are
 downloaded, one small link per file, and filed into the show's folder like any other download.
 
-Off until you turn it on in Settings → Extras. A watch stops by itself when the link dies or after a
+Off until you turn it on in Settings → Downloads. A watch stops by itself when the link dies or after a
 set number of days with nothing new, and Linkarr tells you either way.
 """
 import json
@@ -41,7 +41,7 @@ def add(ctx, link_id: int) -> dict:
     """Watch the folder link of a show you've added. What's in the folder now belongs to that download;
     anything that turns up later is new."""
     if not prefs.get(ctx.db, "watch_enabled"):
-        raise WatchError("Monitored links are off. Turn them on in Settings → Extras.")
+        raise WatchError("Monitored links are off. Turn them on in Settings → Downloads.")
     link = ctx.db.one("SELECT * FROM links WHERE id = ?", (link_id,))
     if link is None:
         raise WatchError("That link is gone.")

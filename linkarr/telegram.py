@@ -239,7 +239,7 @@ class Telegram:
 
     async def on_captcha_links(self, chat: str, urls: list[str]) -> None:
         if not prefs.get(self.ctx.db, "captcha_enabled"):
-            await self.send(chat, "🔒 That's a captcha link.\nCaptcha links are off.\nTurn them on in Linkarr → Settings → Extras.")
+            await self.send(chat, "🔒 That's a captcha link.\nCaptcha links are off.\nTurn them on in Linkarr → Settings → Downloads.")
             return
         for url in urls[:5]:
             try:
@@ -263,7 +263,7 @@ class Telegram:
     def site_reply(self) -> tuple[str, list]:
         site = prefs.site(self.ctx.db)
         if not site:
-            return "No download site set yet.\nAdd it in Settings → Connections.", []
+            return "No download site set yet.\nAdd it in Settings → Accounts.", []
         e = html.escape
         return f"🔗 <b>{e(site['name'])}</b>\n{e(site['url'])}", [[(f"Open {site['name']}", site["url"])]]
 
@@ -388,7 +388,7 @@ class Telegram:
         /watch on its own lists what's watched."""
         e = html.escape
         if not prefs.get(self.ctx.db, "watch_enabled"):
-            await self.send(chat, "Monitored links are off.\nTurn them on in Linkarr → Settings → Extras.")
+            await self.send(chat, "Monitored links are off.\nTurn them on in Linkarr → Settings → Downloads.")
             return
         links = find_links(text)
         if not links:

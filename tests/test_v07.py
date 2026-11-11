@@ -76,7 +76,7 @@ def test_watch_needs_the_switch_and_a_folder(ctx, libs, mega):
         watch.add(ctx, j["links"][0]["id"])
         raise AssertionError("watch added while switched off")
     except watch.WatchError as e:
-        assert "Settings → Extras" in str(e)
+        assert "Settings → Downloads" in str(e)
     prefs.set_many(ctx.db, {"watch_enabled": True})
     mega.add(MOVIE_URL, "Dune.Part.Two.2024.mkv", [("Dune.Part.Two.2024.mkv", 100)], kind="file")
     m = run(jobs.add_link(ctx, MOVIE_URL))
@@ -165,7 +165,7 @@ def test_watch_api_and_bot(ctx, libs, mega):
     folder(mega, SHOW_S1, "Severance S02", [("Severance S02/Severance.S02E01.mkv", 100, "h0000001")])
 
     run(tg.on_message({"chat": {"id": 42}, "text": f"/watch {SHOW_S1}"}))
-    assert sent.calls[-1][1]["text"] == "Monitored links are off.\nTurn them on in Linkarr → Settings → Extras."
+    assert sent.calls[-1][1]["text"] == "Monitored links are off.\nTurn them on in Linkarr → Settings → Downloads."
     prefs.set_many(ctx.db, {"watch_enabled": True})
     run(tg.on_message({"chat": {"id": 42}, "text": "/watch https://mega.nz/file/Abc12345#" + KEY}))
     assert sent.calls[-1][1]["text"].startswith("Only folder links can be monitored.")
@@ -193,7 +193,7 @@ def test_watch_page_api(cfg, mega, tmdb_client):
         j = c.post("/api/jobs", json={"url": SHOW_S1, "kind": "series"}, headers=h).json()
         assert c.get("/api/overview").json()["extras"] == {"watch": False, "captcha": True}
         r = c.post("/api/watches", json={"link_id": j["links"][0]["id"]}, headers=h)
-        assert r.status_code == 400 and "Extras" in r.json()["detail"]
+        assert r.status_code == 400 and "Downloads" in r.json()["detail"]
         c.put("/api/settings", json={"watch_enabled": True}, headers=h)
         w = c.post("/api/watches", json={"link_id": j["links"][0]["id"]}, headers=h).json()
         assert "seen" not in w

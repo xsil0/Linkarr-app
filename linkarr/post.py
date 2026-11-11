@@ -15,7 +15,7 @@ from .parse import parse_name
 MAX_LINKS = 40
 _RES_ORDER = {"2160p": 4, "1080p": 3, "720p": 2, "576p": 1, "480p": 0}
 _RES = re.compile(r"\b(2160p|1080p|720p|576p|480p|4k|uhd)\b", re.I)
-_PASSWORD = re.compile(r"(?:^|\n)[^\n]{0,20}\b(?:password|pass|pw|pwd)\b\s*(?:is|[:=\-])\s*([^\s<>\"]{1,100})", re.I)
+_PASSWORD = re.compile(r"\b(?:password|passwd|pass|pw|pwd)\b\s*(?:is\b|[:=\-])\s*([^\s<>\"]{1,100})", re.I)
 _TOKEN = re.compile(r"(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_-]{24,}={0,2}(?![A-Za-z0-9+/_=-])")
 _URL = re.compile(r"https?://\S+", re.I)
 

@@ -59,11 +59,11 @@ sign-in form (the page says so).
 2. **Settings → Libraries**: add each library folder. The folder is relative to the Media path,
    so `Movies` means `/mnt/user/Media/Movies`. Pick Movies or Shows, and tick **Docs** on your
    documentary libraries. **Load Plex libraries** lists Plex's section ids for the last column.
-3. **Settings → MEGA**: sign in (with your two-factor code if you use one). Downloads then use your
+3. **Settings → Accounts**: sign in to MEGA (with your two-factor code if you use one). Downloads then use your
    account's transfer quota. Linkarr doesn't keep the password; MEGA's own tool keeps a session in
    `/data/megacmd`, so updating the container doesn't sign you out.
-4. **Settings → Connections**: a free TMDB API key (themoviedb.org → Settings → API). Optional:
-   Plex address and token, Telegram bot token and chat id.
+4. **Settings → Accounts**: a free TMDB API key (themoviedb.org → Settings → API). Optional:
+   **Media servers** (Plex, Jellyfin or Emby) and **Telegram** (bot token and chat id).
 5. **Setup check** shows anything still missing.
 6. On Android: Chrome menu → **Add to Home screen**. After that, **Share** a MEGA link from any
    app and pick Linkarr.

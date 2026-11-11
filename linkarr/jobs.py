@@ -1062,10 +1062,10 @@ def hold_captcha(ctx: Ctx, text: str) -> dict:
     """A captcha link becomes a job on hold ('needs_captcha') until you paste back the MEGA link.
     The same link sent twice gives back the job already waiting for it."""
     if not prefs.get(ctx.db, "captcha_enabled"):
-        raise JobError("Captcha links are off. Turn them on in Settings → Extras.")
+        raise JobError("Captcha links are off. Turn them on in Settings → Downloads.")
     found = captcha.find(text, prefs.captcha_hosts(ctx.db))
     if not found:
-        raise JobError("That isn't a captcha link Linkarr knows. Add its site in Settings → Extras.")
+        raise JobError("That isn't a captcha link Linkarr knows. Add its site in Settings → Downloads.")
     url = found[0]
     old = ctx.db.one("SELECT id FROM jobs WHERE status = 'needs_captcha' AND hold_url = ?", (url,))
     if old:

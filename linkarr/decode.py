@@ -41,7 +41,7 @@ def decode_once(text: str) -> str | None:
 
 def unwrap(text: str, max_layers: int = MAX_LAYERS, hosts: list[str] | None = None) -> dict:
     """{'layers': [each decoded text], 'links': [MEGA links found], 'captcha': [captcha links found],
-    'done': why it stopped}. hosts are the captcha hosts (Settings → Extras); None means the default."""
+    'done': why it stopped}. hosts are the captcha hosts (Settings → Downloads); None means the default."""
     hosts = captcha.parse_hosts(captcha.DEFAULT_HOSTS) if hosts is None else hosts
     current = (text or "").strip()
     layers: list[str] = []

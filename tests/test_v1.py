@@ -255,3 +255,12 @@ def test_new_defaults(db):
     assert prefs.get(db, "theme") == "dark"
     assert prefs.set_many(db, {"theme": "poster"})["theme"] == "dark"
     assert prefs.set_many(db, {"theme": "light"})["theme"] == "light"
+
+
+def test_saved_passwords_only_go_in_the_backup_with_keys(client):
+    sign_up(client)
+    client.put("/api/settings", json={"archive_passwords": "{year}\nsecret.example"}, headers=H)
+    plain = client.get("/api/backup").json()
+    assert "archive_passwords" not in plain["prefs"] and "secrets" not in plain
+    full = client.get("/api/backup?secrets=1").json()
+    assert full["prefs"]["archive_passwords"]

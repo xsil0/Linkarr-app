@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS shows (
   notified TEXT NOT NULL DEFAULT '{}',
   watching INTEGER NOT NULL DEFAULT 1,
   missing TEXT NOT NULL DEFAULT '',
+  poster TEXT NOT NULL DEFAULT '',
   checked_at INTEGER NOT NULL DEFAULT 0
 );
 
@@ -240,8 +241,11 @@ class Database:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN show_unknown INTEGER NOT NULL DEFAULT 0")
         if "hidden" not in {r["name"] for r in self.conn.execute("PRAGMA table_info(links)")}:
             self.conn.execute("ALTER TABLE links ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
-        if "missing" not in {r["name"] for r in self.conn.execute("PRAGMA table_info(shows)")}:
+        show_cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(shows)")}
+        if "missing" not in show_cols:
             self.conn.execute("ALTER TABLE shows ADD COLUMN missing TEXT NOT NULL DEFAULT ''")
+        if "poster" not in show_cols:  # 1.0: the small posters in Tracker → Coming up
+            self.conn.execute("ALTER TABLE shows ADD COLUMN poster TEXT NOT NULL DEFAULT ''")
 
     def query(self, sql: str, params=()) -> list[sqlite3.Row]:
         with self.lock:

@@ -103,11 +103,19 @@
   const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const posterUrl = (p) => (p ? "/api/poster" + p : "");
+  const badPosters = new Set();  // posters that failed once aren't asked for again on every refresh
   const posterEl = (p, title, cls) => {
     const u = posterUrl(p);
-    return u ? `<div class="poster ${cls || ""}" style="background-image:url('${esc(u)}')"></div>`
-      : `<div class="poster ${cls || ""}">${esc((title || "?").trim().charAt(0).toUpperCase())}</div>`;
+    const img = u && !badPosters.has(u) ? `<img src="${esc(u)}" alt="" loading="lazy" decoding="async">` : "";
+    return `<div class="poster ${cls || ""}" aria-hidden="true">${esc((title || "?").trim().charAt(0).toUpperCase())}${img}</div>`;
   };
+  document.addEventListener("error", (e) => {
+    const t = e.target;
+    if (t && t.tagName === "IMG" && t.parentNode && t.parentNode.classList && t.parentNode.classList.contains("poster")) {
+      badPosters.add(t.getAttribute("src"));
+      t.remove();
+    }
+  }, true);
   const titleYear = (j) => `${esc(j.title)}${j.year ? ` <span class="yr">(${esc(j.year)})</span>` : ""}`;
   const STATUS = {
     draft: ["Waiting for you", "acc"], queued: ["Queued", ""], downloading: ["Downloading", "acc"], processing: ["Unpacking", "acc"],
@@ -119,7 +127,7 @@
   const LINK_ALERTS = ["integrity", "dead", "error", "unpack", "novideo"];
 
   // ---------- state ----------
-  const state = { auth: null, overview: null, settings: null, route: "", timer: null, matchInfo: {}, history: [], openDetails: new Set(), openRecent: new Set(), trackerTab: "series" };
+  const state = { auth: null, overview: null, settings: null, route: "", timer: null, matchInfo: {}, history: [], openDetails: new Set(), openRecent: new Set(), trackerTab: "series", find: {} };
 
   function setTheme(t) {
     document.documentElement.dataset.theme = t || "dark";
@@ -144,7 +152,7 @@
     if (state.route !== "") api("GET", "/api/overview").then((ov) => { state.overview = ov; sideInfo(ov); }).catch(() => {});
   }
 
-  const brand = () => `<div class="brand"><img src="/static/mark.svg" alt=""><span><span class="word">link</span><span class="arr">arr</span></span></div>`;
+  const brand = () => `<div class="brand"><img src="/static/mark.svg" alt=""><span class="wordmark">Link<span class="arr">arr</span></span></div>`;
 
   // The sign-in cookie is HTTPS-only unless LA_COOKIE_SECURE=0, so over plain http the browser
   // drops it and you land back on this form. Say so instead of failing silently.
@@ -178,8 +186,10 @@
     $("#app").innerHTML = `<div class="auth"><form class="card stack" id="login-form">${brand()}${httpHint()}
       <label class="f"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
       <label class="f"><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
-      <div class="err" id="auth-err">${state.auth.locked_for ? "Too many wrong passwords. Wait a few minutes." : ""}</div>
-      <button class="btn primary" style="width:100%">Sign in</button></form></div>`;
+      <div class="err" id="auth-err">${state.auth.locked_for ? "Too many wrong passwords from this device. Wait a few minutes." : ""}</div>
+      <button class="btn primary" style="width:100%">Sign in</button>
+      <details class="help"><summary>Forgot your password?</summary><p>Run this on the server, then open Linkarr and make the account again with the setup code it prints. Your libraries, settings and history stay.</p>
+      <p><code>docker exec linkarr python -m linkarr reset-password</code></p></details></form></div>`;
     $("#login-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try { await api("POST", "/api/auth/login", Object.fromEntries(new FormData(e.target))); afterSignIn(); }
@@ -192,9 +202,6 @@
   const NAV = [["", "Activity", "activity"], ["library", "Library", "search"], ["tracker", "Tracker", "tv"], ["history", "History", "history"], ["settings", "Settings", "settings"]];
   const navKey = (path) => ({ shows: "tracker", check: "settings", logs: "settings", decode: "settings" }[path] || path);
 
-  // The Terminal theme's prompt: linkarr@<server name>, or just linkarr when the address is a number.
-  const promptHost = () => (/^[\d.:[\]]+$/.test(location.hostname) || !location.hostname ? "linkarr" : "linkarr@" + location.hostname.split(".")[0]);
-
   function renderShell() {
     $("#app").innerHTML = `<div class="shell">
       <aside class="side" id="side">${brand()}
@@ -203,16 +210,26 @@
         <div class="side-foot" id="side-foot"></div>
       </aside>
       <main class="main"><div class="top"><img class="top-mark" src="/static/mark.svg" alt=""><h1 id="page-title"></h1><div class="grow"></div><div id="top-extra"></div></div>
-        <form class="paste" id="paste"><span class="paste-ico">${ICON.link}</span><span class="prompt" aria-hidden="true"><span class="p-host">${esc(promptHost())}:</span>~$</span><input type="text" id="paste-input" aria-label="Add a MEGA link" placeholder="Paste MEGA link or code" autocomplete="off" spellcheck="false"><button class="btn primary">${ICON.plus}Add</button></form>
+        <form class="paste" id="paste"><label for="paste-input">link &gt;</label><input type="text" id="paste-input" placeholder="Paste a MEGA link, a code, or a whole post" autocomplete="off" spellcheck="false"><button class="btn primary">Add</button></form>
         <div id="page"></div></main>
       <nav class="tabbar" id="tabbar" aria-label="Pages"></nav></div>`;
     $("#paste").addEventListener("submit", (e) => { e.preventDefault(); addLinks($("#paste-input").value); });
+    // A whole post pasted in: a one-line box would flatten it and lose which label goes with which link,
+    // so the picker opens straight away with the text as it was.
+    $("#paste-input").addEventListener("paste", (e) => {
+      const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+      if (!/\n/.test(t.trim()) && findUrls(t).length < 2) return;
+      e.preventDefault();
+      addLinks(t, { ask: true });
+    });
     tabbar(null);
-    const shared = new URLSearchParams(location.search).get("link");
+    // From the phone's Share menu or the Send to Linkarr bookmark. Opening the address never adds anything:
+    // the picker shows what's in it and waits for you to press Add.
+    const qs = new URLSearchParams(location.search);
+    const shared = qs.get("share") || qs.get("link");
     if (shared) {
       history.replaceState(null, "", "/" + location.hash);
-      $("#paste-input").value = shared;
-      addLinks(shared);
+      addLinks(shared, { ask: true });
     }
   }
 
@@ -232,11 +249,11 @@
   function sideInfo(ov) {
     const site = ov.site;
     morph($("#side-site"), site ? `<a class="site-btn" href="${esc(site.url)}" target="_blank" rel="noopener noreferrer">${badgeIcon(site.badge)}<span class="ellipsis">${esc(site.name)}</span>${ICON.ext}</a>` : "");
-    $("#side-foot").innerHTML = `<div><span class="dot ${ov.mega ? "ok" : ""}"></span>${ov.mega ? "MEGA: " + esc(ov.mega) : "MEGA not signed in"}</div>
-      ${quotaMeter(ov.quota)}
-      ${ov.free != null ? `<div>Disk: ${fmtBytes(ov.free)} free</div>` : ""}<div>Linkarr ${esc(ov.version)}</div>`;
+    morph($("#side-foot"), `${quotaMeter(ov.quota)}
+      <div class="acct"><span class="dot ${ov.mega ? "ok" : ""}"></span><span class="ellipsis">${ov.mega ? esc(ov.mega) : "MEGA not signed in"}</span></div>
+      <div class="ver">v${esc(ov.version)}${ov.free != null ? " · " + fmtBytes(ov.free) + " free" : ""}</div>`);
     tabbar(ov);
-    const n = (ov.alerts || []).length;
+    const n = needsYou(ov).length;
     $$("[data-alerts]").forEach((c) => { c.textContent = n; c.classList.toggle("hidden", !n); });
     $$("[data-issues]").forEach((c) => c.classList.toggle("hidden", !ov.setup_issues));
   }
@@ -245,47 +262,141 @@
     if (!q || !q.max) return "";
     const left = Math.max(0, q.max - q.used);
     const pct = Math.min(100, Math.round((100 * q.used) / q.max));
-    return `<div class="quota" title="MEGA transfer allowance: ${fmtBytes(q.used)} used of ${fmtBytes(q.max)}"><div>Transfer: ${fmtBytes(left)} left</div>
-      <div class="bar${pct >= 90 ? " low" : ""}"><i style="width:${pct}%"></i></div></div>`;
+    return `<div class="quota" title="MEGA transfer allowance: ${fmtBytes(q.used)} used of ${fmtBytes(q.max)}"><div class="label">MEGA transfer</div>
+      <div class="n">${fmtBytes(left)} left of ${fmtBytes(q.max)}</div><div class="bar mono${pct >= 90 ? " low" : ""}"><i style="width:${100 - pct}%"></i></div></div>`;
+  }
+
+  // Everything waiting on you: alerts, failed jobs (with no alert saying so already) and held captcha links.
+  function needsYou(ov) {
+    const active = ov.active || [];
+    const drafts = new Set(active.filter((j) => j.status === "draft" || j.status === "needs_answer").map((j) => j.id));
+    const alerts = (ov.alerts || []).filter((a) => !(["match", "conflict", "inbox", "recheck"].includes(a.kind) && drafts.has(a.job_id)));
+    const alerted = new Set(alerts.map((a) => a.job_id));
+    const failed = active.filter((j) => j.status === "failed" && !alerted.has(j.id));
+    const caps = active.filter((j) => j.status === "needs_captcha");
+    return [...alerts.map((a) => ({ alert: a })), ...failed.map((j) => ({ failed: j })), ...caps.map((j) => ({ captcha: j }))];
   }
 
   const findUrls = (text) => (text || "").match(/(https?:\/\/(?:www\.)?mega\.(?:nz|co\.nz|io)\/[^\s<>"']+|mega:\/\/[^\s<>"']+)/gi) || [];
 
-  async function addLinks(text) {
-    let urls = findUrls(text);
-    if (!urls.length) {
-      // Not a link: maybe a Base64 code with one inside (sometimes encoded several times).
-      let r;
-      try { r = await api("POST", "/api/decode", { text: text || "" }); } catch (e) { toast(e.message); return; }
-      if (!r.links.length && r.captcha && r.captcha.length) return holdCaptcha(r.captcha);
-      if (!r.links.length) {
-        toast(r.layers.length ? `Decoded ${r.layers.length} time${r.layers.length > 1 ? "s" : ""} but found no MEGA link. Open Settings, Tools to see it.`
-          : "That isn't a MEGA link or a Base64 code.");
-        return;
-      }
-      if (r.layers.length && !(await askAdd(r))) return;
-      urls = r.links;
+  async function addLinks(text, opts) {
+    text = (text || "").trim();
+    if (!text) return;
+    let r;
+    try { r = await api("POST", "/api/scan", { text }); } catch (e) { toast(e.message); return; }
+    const links = r.links, caps = r.captcha || [];
+    if (!links.length && !caps.length) {
+      let d = { layers: [] };
+      try { d = await api("POST", "/api/decode", { text }); } catch (e) { /* the plain message below is enough */ }
+      toast(d.layers && d.layers.length ? `Decoded ${d.layers.length} time${d.layers.length > 1 ? "s" : ""} but found no MEGA link. Settings → System → Decoder shows what's inside.`
+        : "No MEGA link in that. Paste the link, a Base64 code, or the whole post.");
+      return;
     }
-    let last = null, auto = 0;
-    for (const u of urls) {
-      try { last = await api("POST", "/api/jobs", { url: u }); if (last.status !== "draft") auto++; }
-      catch (e) { toast(e.message); }
+    const ask = opts && opts.ask;
+    const plainLink = links.length === 1 && !caps.length && findUrls(text).length === 1 && !/\s/.test(text);
+    if (plainLink && !ask) {
+      if (links[0].error) { toast(links[0].error); return; }
+      return addPicked([links[0]], [], "");
     }
-    $("#paste-input").value = "";
-    if (!last) return;
-    if (urls.length === 1 && last.status !== "draft") {
-      toast(`Found ${last.title}. Linkarr is sure it's right, so it started.`);
-      if (state.route === "") refreshActivity(); else location.hash = "#/";
-    } else if (urls.length === 1) {
-      toast(`Found ${last.title}.`);
-      location.hash = "#/job/" + last.id;
-    } else {
-      toast(`Added ${urls.length} links${auto ? `, ${auto} started automatically` : ""}.`);
-      if (state.route === "") refreshActivity(); else location.hash = "#/";
-    }
+    if (!links.length && caps.length === 1 && !ask) return holdCaptcha(caps);
+    openPicker(r);
   }
 
-  // A captcha link (a site listed in Settings → Extras): held as "Needs captcha" until you paste back the MEGA link.
+  // Adds what was picked. Seasons of one show become one job, so they're filed together.
+  async function addPicked(items, caps, password) {
+    let last = null, auto = 0, n = 0;
+    const jobFor = {};
+    for (const it of items) {
+      const key = it.kind === "series" && it.title ? it.title.toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
+      const body = { url: it.url };
+      if (key && jobFor[key]) body.job_id = jobFor[key];
+      else if (password) body.archive_password = password;
+      try {
+        last = await api("POST", "/api/jobs", body);
+        n++;
+        if (key && !jobFor[key]) jobFor[key] = last.id;
+        if (last.status !== "draft") auto++;
+      } catch (e) { toast(e.message); }
+    }
+    for (const u of caps) {
+      try { await api("POST", "/api/captcha", { url: u }); n++; } catch (e) { toast(e.message); }
+    }
+    $("#paste-input").value = "";
+    if (!n) return;
+    const jobs = new Set(Object.values(jobFor)).size + items.filter((it) => !(it.kind === "series" && it.title)).length;
+    if (jobs === 1 && last && !caps.length) {
+      if (last.status !== "draft") { toast(`Found ${last.title}. Linkarr is sure it's right, so it started.`); goActivity(); }
+      else { toast(`Found ${last.title}.`); location.hash = "#/job/" + last.id; }
+      return;
+    }
+    toast(`Added ${n} link${n === 1 ? "" : "s"}${auto ? `, ${auto} started by themselves` : ""}.`);
+    goActivity();
+  }
+  const goActivity = () => { if (state.route === "") refreshActivity(); else location.hash = "#/"; };
+
+  // The link picker: every link in the post, what it is, and which ones to add. Where one title comes in
+  // several qualities only the best is ticked, and ticking another one in that group unticks it.
+  function openPicker(r) {
+    const links = r.links, caps = r.captcha || [];
+    const groups = {};
+    links.forEach((l) => { if (l.group) groups[l.group] = (groups[l.group] || 0) + 1; });
+    const labels = new Set(links.map((l) => l.label));
+    const useLabels = labels.size > 1;  // the same words next to every link say nothing
+    const row = (l, i) => {
+      const dead = !!l.error;
+      const name = l.name || l.label || l.url.split("#")[0];
+      const bits = [l.kind === "series" ? (l.seasons.length ? (l.seasons.length > 1 ? `Seasons ${l.seasons[0]}–${l.seasons[l.seasons.length - 1]}` : `Season ${l.seasons[0]}`) : "Series") : "Movie"];
+      if (l.size) bits.push(fmtBytes(l.size));
+      if (l.files > 1) bits.push(`${l.files} files`);
+      return `<label class="pick${dead ? " dead" : ""}${l.selected ? "" : " off"}"><input type="checkbox" data-i="${i}" ${l.selected ? "checked" : ""} ${dead ? "disabled" : ""}${l.group ? ` data-group="${esc(l.group)}"` : ""}>
+        <div class="grow"><div class="row" style="gap:8px"><span class="name">${esc(name)}</span>${l.resolution ? `<span class="q">${esc(l.resolution)}</span>` : ""}</div>
+        <div class="meta">${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</div>
+        ${useLabels && l.label && l.label !== name ? `<div class="muted small">In the post: ${esc(l.label)}</div>` : ""}
+        ${l.group && !dead ? `<div class="alt">Same title in ${groups[l.group]} qualities. Pick one.</div>` : ""}
+        ${dead ? `<div class="err">${esc(l.error)}</div>` : ""}</div></label>`;
+    };
+    const capRow = (u, i) => `<label class="pick"><input type="checkbox" data-cap="${i}" checked><div class="grow"><div class="name">Captcha link</div>
+      <div class="meta"><span>${esc(u.split("/")[2] || u)}</span></div><div class="muted small">Linkarr holds it for you to solve, then carries on with the MEGA link you paste back.</div></div></label>`;
+    const d = document.createElement("dialog");
+    d.className = "picker";
+    d.innerHTML = `<div class="head"><div class="label acc">${links.length + caps.length} link${links.length + caps.length === 1 ? "" : "s"} in this post</div><h2>Pick what to add</h2></div>
+      <div class="body">${links.map(row).join("")}${caps.map(capRow).join("")}
+        ${r.more ? `<div class="muted small" style="padding:10px 0">${r.more} more links weren't read. Add them in a second go.</div>` : ""}</div>
+      <div class="foot"><label class="f"><span>Archive password${r.password ? " (found in the post)" : ", if the files are locked"}</span>
+        <input type="text" id="pick-pass" value="${esc(r.password || "")}" autocomplete="off" spellcheck="false" placeholder="Leave empty to try your saved passwords"></label>
+        <div class="row"><button class="btn primary" data-pick="some">Add</button><button class="btn" data-pick="all">Add all</button><div class="grow"></div><button class="btn ghost" data-pick="no">Cancel</button></div></div>`;
+    document.body.appendChild(d);
+    const boxes = () => $$("input[type=checkbox]", d);
+    const count = () => {
+      const n = boxes().filter((b) => b.checked).length;
+      $('[data-pick="some"]', d).textContent = n ? `Add ${n}` : "Add";
+      $('[data-pick="some"]', d).disabled = !n;
+      boxes().forEach((b) => b.closest(".pick").classList.toggle("off", !b.checked));
+    };
+    d.addEventListener("change", (e) => {
+      const b = e.target;
+      if (b.checked && b.dataset.group) boxes().forEach((o) => { if (o !== b && o.dataset.group === b.dataset.group) o.checked = false; });
+      count();
+    });
+    const close = () => { d.close(); d.remove(); };
+    d.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pick]");
+      if (!b) { if (e.target === d) close(); return; }
+      if (b.dataset.pick === "no") return close();
+      const all = b.dataset.pick === "all";
+      const picked = boxes().filter((x) => !x.disabled && (all || x.checked));
+      const items = picked.filter((x) => x.dataset.i != null).map((x) => links[+x.dataset.i]);
+      const cs = picked.filter((x) => x.dataset.cap != null).map((x) => caps[+x.dataset.cap]);
+      const pw = $("#pick-pass", d).value.trim();
+      close();
+      addPicked(items, cs, pw);
+    });
+    d.addEventListener("cancel", () => d.remove());
+    count();
+    d.showModal();
+  }
+
+  // A captcha link (a site listed in Settings → Downloads): held as "Needs captcha" until you paste back the MEGA link.
   async function holdCaptcha(urls) {
     let last = null;
     for (const u of urls) {
@@ -311,47 +422,17 @@
   // The link, two steps, Open link, and a box for the MEGA link. Linkarr never tries the captcha itself.
   function captchaCard(j) {
     const host = (j.hold_url.split("/")[2] || "").toLowerCase();
-    return `<div class="card job captcha"><div class="poster lock">${ICON.lock}</div><div class="job-body">
-      <div class="spread"><div class="job-title">Captcha link</div>${statusTag(j.status)}</div>
-      <div class="meta"><span>${esc(host)}</span><span>Added ${fmtAgo(j.created_at)}</span></div>
-      <div class="path">${esc(j.hold_url)}</div>
+    return `<div class="card alert captcha"><span class="ic">${ICON.lock}</span><div class="grow">
+      <div class="spread"><span class="label acc">Captcha</span><span class="when">held ${fmtAgo(j.created_at)}</span></div>
+      <h3>Held link, waiting for you to solve it</h3><div class="path">${esc(j.hold_url)}</div>
       <ol class="cap-steps small"><li>Open the link and solve the captcha.</li><li>Paste the MEGA link it shows below.</li></ol>
-      <div class="row"><a class="btn primary" href="${esc(j.hold_url)}" target="_blank" rel="noopener noreferrer">${ICON.ext}Open link</a></div>
-      <form class="row" data-captcha-form="${j.id}"><input type="text" id="cap-${j.id}" data-key="cap-${j.id}" class="grow" style="flex:1" placeholder="Paste the MEGA link here" autocomplete="off" spellcheck="false"><button class="btn">Continue</button></form>
-      <div class="row"><span class="muted small">You get one reminder if it's still here tomorrow.</span><div class="grow"></div><button class="btn sm ghost danger" data-action="drop-captcha" data-job="${j.id}">Drop it</button></div>
+      <form class="row" data-captcha-form="${j.id}"><a class="btn sm" href="${esc(j.hold_url)}" target="_blank" rel="noopener noreferrer">${ICON.ext}Open link</a>
+        <input type="text" id="cap-${j.id}" data-key="cap-${j.id}" style="flex:1 1 200px;width:auto" placeholder="Then paste the MEGA link here" autocomplete="off" spellcheck="false"><button class="btn sm primary">Continue</button></form>
+      <div class="row"><span class="muted small">One reminder if it's still here tomorrow.</span><div class="grow"></div><button class="btn sm ghost danger" data-action="drop-captcha" data-job="${j.id}">Drop it</button></div>
     </div></div>`;
   }
 
-  // "Found a MEGA link in that code. Add it?" Resolves true or false.
-  function askAdd(r) {
-    return new Promise((resolve) => {
-      const d = document.createElement("dialog");
-      const n = r.layers.length;
-      d.innerHTML = `<h2>Found a MEGA link</h2><p class="muted small">Decoded ${n} time${n > 1 ? "s" : ""}.</p>
-        <div class="path" style="margin:10px 0">${r.links.map((u) => esc(u.split("#")[0]) + "#…").join("<br>")}</div>
-        <p>Add ${r.links.length > 1 ? "them" : "it"}?</p><div class="row" style="justify-content:flex-end">
-        <button class="btn" value="no">No</button><button class="btn primary" value="yes">Add ${r.links.length > 1 ? "them" : "it"}</button></div>`;
-      document.body.appendChild(d);
-      d.addEventListener("click", (e) => {
-        const b = e.target.closest("button");
-        if (!b && e.target !== d) return;
-        d.close();
-        d.remove();
-        resolve(!!b && b.value === "yes");
-      });
-      d.addEventListener("cancel", () => { d.remove(); resolve(false); });
-      d.showModal();
-    });
-  }
-
-  // ---------- decoder ----------
-  function renderDecoder() {
-    title("Settings");
-    page().innerHTML = settingsTabs("tools") + `<div class="card stack"><h2>Decoder</h2><p class="muted small">Paste a Base64 code. Linkarr decodes it up to 4 times, stopping as soon as a MEGA link appears. The box at the top does this too: paste a code there and it asks before adding the link.</p>
-      <textarea id="dec-in" rows="5" class="mono" placeholder="aHR0cHM6Ly9tZWdhLm56L..." spellcheck="false"></textarea>
-      <div class="row"><button class="btn primary" data-action="decode">Decode</button></div><div id="dec-out"></div></div>`;
-  }
-
+  // ---------- decoder (Settings → System) ----------
   async function runDecoder() {
     const out = $("#dec-out");
     const r = await api("POST", "/api/decode", { text: $("#dec-in").value });
@@ -370,14 +451,16 @@
   function route() {
     clearInterval(state.timer);
     state.timer = null;
+    if (!$(".main")) return;  // signed out: the sign-in page has no pages to route to
     const h = location.hash.replace(/^#\/?/, "");
     const [path, qs] = h.split("?");
     const q = new URLSearchParams(qs || "");
     state.route = path;
     $$("#nav a, #tabbar a[data-route]").forEach((a) => a.classList.toggle("on", a.dataset.route === navKey(path.split("/")[0])));
     $("#top-extra").innerHTML = "";
+    $(".main").classList.toggle("no-paste", navKey(path.split("/")[0]) === "settings");
     const pages = { "": renderActivity, library: renderLibrary, tracker: renderTracker, shows: renderTracker, history: renderHistory, settings: renderSettings,
-      decode: () => renderSettings(new URLSearchParams("tab=tools")), check: () => renderSettings(new URLSearchParams("tab=check")), logs: () => renderSettings(new URLSearchParams("tab=logs")) };
+      decode: () => renderSettings(new URLSearchParams("tab=system")), check: () => renderSettings(new URLSearchParams("tab=check")), logs: () => renderSettings(new URLSearchParams("tab=system")) };
     if (path.startsWith("job/")) return renderJob(parseInt(path.slice(4), 10));
     (pages[path] || renderActivity)(q);
   }
@@ -410,29 +493,34 @@
     state.overview = ov;
     sideInfo(ov);
     if (state.route !== "") return;
-    const caps = ov.active.filter((j) => j.status === "needs_captcha");
     const drafts = ov.active.filter((j) => j.status === "draft" || j.status === "needs_answer");
-    const running = ov.active.filter((j) => !["draft", "needs_answer", "needs_captcha"].includes(j.status));
-    const jobAlerts = new Set(drafts.map((j) => j.id));
-    const alerts = ov.alerts.filter((a) => !(["match", "conflict", "inbox", "recheck"].includes(a.kind) && jobAlerts.has(a.job_id)));
+    const running = ov.active.filter((j) => !["draft", "needs_answer", "needs_captcha", "failed"].includes(j.status));
+    const needs = needsYou(ov);
     let html = "";
     if (!ov.libraries.length) {
-      html += `<div class="card alert info section"><span class="ic">${ICON.info}</span><div class="grow"><h3>Add your library folders</h3>
-        <div class="muted small">Tell Linkarr where your Movies, TV Shows and other folders are. Then paste a link.</div></div>
-        <a class="btn sm primary" href="#/settings?tab=libraries">Set up</a></div>`;
+      html += `<div class="section"><div class="card alert info"><span class="ic">${ICON.info}</span><div class="grow"><h3>Add your library folders</h3>
+        <div class="msg">Tell Linkarr where your Movies, TV Shows and other folders are. Then paste a link.</div>
+        <div class="row"><a class="btn sm primary" href="#/settings?tab=libraries">Set up</a></div></div></div></div>`;
     }
-    if (alerts.length) html += `<div class="section"><div class="spread"><h2>Needs you</h2></div><div class="cards">${alerts.map(alertCard).join("")}</div></div>`;
-    if (caps.length) html += `<div class="section"><div class="spread"><h2>Needs captcha</h2></div><div class="cards">${caps.map(captchaCard).join("")}</div></div>`;
+    const now = running.find((j) => ["downloading", "processing", "moving"].includes(j.status));
+    if (now) html += heroEl(now, ov, running.indexOf(now) + 1, running.length);
+    if (needs.length) {
+      html += `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Needs you</h2><span class="count num" style="color:var(--accent)">${needs.length}</span></div></div>
+        <div class="cards">${needs.map((n) => n.alert ? alertCard(n.alert) : n.failed ? failedCard(n.failed) : captchaCard(n.captcha)).join("")}</div></div>`;
+    }
     const ready = drafts.filter((j) => j.status === "draft").length;
-    if (drafts.length) html += `<div class="section"><div class="spread"><h2>Check and start</h2>${ready > 1 ? `<div class="row">
+    if (drafts.length) html += `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Check and start</h2><span class="count num">${drafts.length}</span></div>${ready > 1 ? `<div class="row">
       <button class="btn sm primary" data-action="start-all" data-when="now">Start all ${ready}</button><button class="btn sm" data-action="start-all" data-when="tonight">All tonight</button></div>` : ""}</div><div class="cards">${drafts.map((j) => jobCard(j, ov)).join("")}</div></div>`;
-    html += `<div class="section"><div class="spread"><h2>Downloading</h2>${ov.speed ? `<span class="muted small">${fmtBytes(ov.speed)}/s</span>` : ""}</div>`;
-    html += running.length ? `<div class="cards">${running.map((j) => jobCard(j, ov)).join("")}</div>`
-      : `<div class="idle">No downloads pending</div>`;
+    const rest = running.filter((j) => j !== now);
+    const left = rest.reduce((t, j) => t + Math.max(0, j.size - j.done_bytes), 0);
+    html += `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>${now ? "Up next" : "Downloading"}</h2>${rest.length ? `<span class="count num">${rest.length}</span>` : ""}</div>
+      ${rest.length && left ? `<span class="muted small num">${fmtBytes(left)} to go</span>` : !now && ov.speed ? `<span class="muted small num">${fmtBytes(ov.speed)}/s</span>` : ""}</div>`;
+    html += rest.length ? `<div class="rows">${rest.map((j) => queueRow(j, ov)).join("")}</div>`
+      : `<div class="idle">${now ? "Nothing else waiting." : "Nothing downloading. Paste a link above to start."}</div>`;
     html += `</div>`;
     if (ov.recent.length) {
-      html += `<div class="section"><div class="spread"><h2>Recently finished</h2><a href="#/history" class="small">History</a></div>
-        <div class="card list recent">${ov.recent.map(recentRow).join("")}</div></div>`;
+      html += `<div class="section"><div class="spread"><h2>Just landed</h2><a href="#/history" class="small">All history</a></div>
+        <div class="list recent">${ov.recent.map(recentRow).join("")}</div></div>`;
     }
     morph(page(), html);
   }
@@ -445,7 +533,7 @@
     const libPath = j.library ? j.library.path : "";
     const folder = m.where ? m.where.split("/" + libPath + "/").pop() : "";
     return `<div class="li${open ? " open" : ""}" data-action="toggle-recent" data-job="${j.id}" role="button" tabindex="0" aria-expanded="${open}">
-      ${posterEl(j.poster, j.title, "sm")}<div class="grow"><div class="r-title">${titleYear(j)}</div>
+      ${posterEl(j.poster, j.title, "xs")}<div class="grow"><div class="r-title">${titleYear(j)}</div>
       <div class="muted small">${j.library ? esc(j.library.name) : ""}${j.finished_at ? " · " + fmtAgo(j.finished_at) : ""}</div><div class="r-tag">${tag}</div>
       ${open ? `<div class="det">
         ${j.library ? `<div class="kv"><span>Library</span><b>${esc(j.library.name)}</b></div>` : ""}
@@ -476,16 +564,65 @@
     if (a.link_id && LINK_ALERTS.includes(a.kind)) {
       buttons = `<button class="btn sm primary" data-action="fix" data-link="${a.link_id}">Fix it</button><button class="btn sm" data-action="skip-link" data-link="${a.link_id}">Skip file</button>`;
     } else if (a.kind === "auth") {
-      buttons = `<a class="btn sm primary" href="#/settings?tab=mega">Sign in</a>`;
+      buttons = `<a class="btn sm primary" href="#/settings?tab=accounts">Sign in</a>`;
     } else if (a.kind === "plex" && a.job_id) {
       buttons = plexButtons(a.job_id);
     } else if (a.job_id) {
       buttons = `<a class="btn sm primary" href="#/job/${a.job_id}">Open</a>`;
     }
     buttons += `<button class="btn sm ghost" data-action="dismiss" data-alert="${a.id}">Dismiss</button>`;
-    return `<div class="card alert ${cls}"><span class="ic">${cls === "info" ? ICON.info : ICON.warn}</span><div class="grow"><h3>${esc(a.title)}</h3>
-      ${a.message ? `<div class="muted small">${esc(a.message)}</div>` : ""}<div class="row" style="margin-top:8px">${buttons}</div></div>
-      <span class="muted tiny">${fmtAgo(a.created_at)}</span></div>`;
+    const label = { integrity: "Damaged", dead: "Link gone", error: "Download failed", auth: "MEGA sign-in", space: "Disk full", unpack: "Couldn't unpack",
+      novideo: "No video", plex: "Plex", inbox: "Inbox", match: "Same title?", conflict: "Already have it", recheck: "Check the title", show: "Which show" }[a.kind] || "Needs you";
+    return `<div class="card alert ${cls}"><span class="ic">${cls === "info" ? ICON.info : ICON.warn}</span><div class="grow">
+      <div class="spread"><span class="label ${cls === "bad" ? "bad" : "acc"}">${esc(label)}</span><span class="when">${fmtAgo(a.created_at)}</span></div>
+      <h3>${esc(a.title)}</h3>${a.message ? `<div class="msg">${esc(a.message)}</div>` : ""}<div class="row">${buttons}</div></div></div>`;
+  }
+
+  // A job that stopped: what went wrong, and try again or let it go.
+  function failedCard(j) {
+    return `<div class="card alert bad"><span class="ic">${ICON.warn}</span><div class="grow">
+      <div class="spread"><span class="label bad">Failed</span><span class="when">${fmtAgo(j.updated_at || j.created_at)}</span></div>
+      <h3>${titleYear(j)}</h3><div class="msg">${esc(j.error || "It stopped before it was filed.")}</div>
+      <div class="row"><button class="btn sm primary" data-action="start" data-job="${j.id}">Try again</button><a class="btn sm" href="#/job/${j.id}">Details</a>
+      <button class="btn sm ghost danger" data-action="remove-job" data-job="${j.id}">Remove</button></div></div></div>`;
+  }
+
+  // Now downloading: the title big, its poster, where it goes, and how long it has left.
+  function heroEl(j, ov, n, total) {
+    const pct = j.size ? Math.min(100, Math.round((100 * j.done_bytes) / j.size)) : 0;
+    const u = posterUrl(j.poster);
+    const stage = { downloading: "Now downloading", processing: "Unpacking and checking", moving: "Moving to your library" }[j.status] || "Working on it";
+    const leftS = ov.speed && j.status === "downloading" && j.size > j.done_bytes ? (j.size - j.done_bytes) / ov.speed : 0;
+    const eta = leftS ? fmtLeft(leftS) + ", then unpack, rename, move" : j.status === "processing" ? "Unpacking, then rename and move" : j.status === "moving" ? "Almost there" : "";
+    const firstFile = (j.links[0] && j.links[0].name) || "";
+    return `<section class="hero" aria-label="${esc(stage)}">${u && !badPosters.has(u) ? `<div class="wash" style="background-image:url('${esc(u)}')"></div>` : ""}
+      ${j.title.length <= 14 ? `<div class="ghost" aria-hidden="true">${esc(j.title)}</div>` : ""}<div class="in">${posterEl(j.poster, j.title, "lg")}
+      <div class="body"><div class="label acc">${esc(stage)}${total > 1 ? ` · ${n} of ${total}` : ""}</div>
+      <h2><a href="#/job/${j.id}">${esc(j.title)}</a>${j.year ? ` <span class="yr">${esc(j.year)}</span>` : ""}</h2>
+      <div class="soft">${[j.kind === "movie" ? "Movie" : "Series " + seasonsOf(j), (j.genres || []).slice(0, 2).join(", "), fmtBytes(j.size)].filter(Boolean).map(esc).join(" · ")}</div>
+      <div><div class="files-line">${esc(firstFile)}${j.links.length > 1 ? ` +${j.links.length - 1} more` : ""}</div><div class="dest">${esc(destOf(j))}</div></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="nums"><span><b>${pct}%</b>${ov.speed && j.status === "downloading" ? ` · ${fmtBytes(ov.speed)}/s` : ""}</span><span class="soft">${esc(eta)}</span></div></div></div></section>`;
+  }
+  const fmtLeft = (sec) => (sec < 90 ? "1 min left" : sec < 3600 ? Math.round(sec / 60) + " min left" : Math.floor(sec / 3600) + " h " + Math.round((sec % 3600) / 60) + " min left");
+  const destOf = (j) => {
+    if (!j.library) return "";
+    const folder = ["exact", "confirmed"].includes(j.match_state) ? j.match_folder : j.folder_name;
+    return `${j.library.path}/${folder}${j.kind === "series" ? "/" + seasonsOf(j) : ""}`;
+  };
+
+  // One line in the queue: small poster, what it is, where it goes, what it's waiting for.
+  function queueRow(j, ov) {
+    const pct = j.size ? Math.min(100, Math.round((100 * j.done_bytes) / j.size)) : 0;
+    const nightLink = j.links.find((l) => l.not_before && l.status === "queued" && l.not_before * 1000 > Date.now());
+    const windowLink = !nightLink && j.links.find((l) => l.window_at && l.status === "queued");
+    const errs = j.links.filter((l) => l.status === "error").length;
+    const state = nightLink ? "Starts " + fmtTime(nightLink.not_before) : windowLink ? "Waits for the download window, " + fmtTime(windowLink.window_at)
+      : errs ? `${errs} link${errs > 1 ? "s" : ""} need${errs > 1 ? "" : "s"} you` : j.wait_all && j.status === "waiting" ? "Waiting for the other links" : (STATUS[j.status] || [j.status])[0];
+    return `<div class="qrow">${posterEl(j.poster, j.title, "xs")}<div class="what"><div class="job-title"><a href="#/job/${j.id}">${titleYear(j)}</a></div>
+      <div class="meta"><span>${j.kind === "movie" ? "Movie" : "Series"}</span><span>${fmtBytes(j.size)}</span>${j.links.length > 1 ? `<span>${j.links.length} links</span>` : ""}${pct && pct < 100 ? `<span>${pct}%</span>` : ""}</div></div>
+      <div class="where">${esc(destOf(j))}</div><span class="state">${esc(state)}</span>
+      <button class="btn sm ghost danger" data-action="cancel" data-job="${j.id}">Cancel</button></div>`;
   }
 
   function libChips(j, ov) {
@@ -505,7 +642,31 @@
     return s.length === 1 ? `Season ${s[0]}` : s.length ? `Season ${s[0]}–${s[s.length - 1]}` : "Season …";
   }
 
-  const noteBlock = (j) => (j.note && j.status === "draft" && !j.recheck && !j.show_unknown ? `<div class="question small">${esc(j.note)} <a href="#/job/${j.id}">Pick the right one</a></div>` : "");
+  const noteBlock = (j) => (j.note && j.status === "draft" && !j.recheck && !j.show_unknown && j.tmdb_id ? `<div class="question small">${esc(j.note)} <a href="#/job/${j.id}">Pick the right one</a></div>` : "");
+
+  // Linkarr couldn't tell what it is (uploaders sometimes disguise names). Search for the real title right
+  // here; picking one renames the folder and files after it.
+  function findBlock(j) {
+    if (j.tmdb_id || j.show_unknown || !["draft", "needs_answer"].includes(j.status)) return "";
+    const f = state.find[j.id] || {};
+    return `<div class="question"><div>Linkarr couldn't tell what this is.</div>
+      <div class="muted small">Some uploads have a made-up name. Search for the real title and Linkarr names the folder and files after it.</div>
+      <form class="row" data-find-form="${j.id}"><input type="search" data-key="find-${j.id}" placeholder="Real title, like Dune 2021" value="${esc(f.q || "")}" style="flex:1 1 200px;width:auto" autocomplete="off"><button class="btn sm">Search</button></form>
+      <div class="find">${f.html || ""}</div></div>`;
+  }
+  async function findTitle(id, q) {
+    state.find[id] = { q, html: `<div class="muted small">Searching…</div>` };
+    rerender();
+    try {
+      const hits = await api("GET", "/api/tmdb/search?q=" + encodeURIComponent(q));
+      state.find[id].html = hits.length ? hits.slice(0, 6).map((h) => `<div class="hit"><div class="grow"><b>${esc(h.title)}</b> ${h.year ? `<span class="yr">${h.year}</span>` : ""}
+          <span class="tag">${h.kind === "movie" ? "Movie" : "Series"}</span><div class="muted tiny ellipsis">${esc(h.overview)}</div></div>
+          <button class="btn sm" data-action="use-tmdb" data-job="${id}" data-id="${h.id}" data-kind="${h.kind}">Use this</button></div>`).join("")
+        : `<div class="muted small">Nothing found. Try fewer words, or type the title in Edit details.</div>`;
+    } catch (e) { state.find[id].html = `<div class="err">${esc(e.message)}</div>`; }
+    rerender();
+  }
+  const rerender = () => (state.route === "" ? refreshActivity() : state.route.startsWith("job/") ? renderJob(parseInt(state.route.slice(4), 10), true) : null);
 
   // What the folder already in your library is (title, year, poster), fetched once per job and folder.
   function matchInfo(j) {
@@ -596,7 +757,7 @@
       <div class="meta"><span>${j.kind === "movie" ? "Movie" : "Series"}</span><span>${fmtBytes(j.size)}</span><span>${j.links.length} link${j.links.length === 1 ? "" : "s"}</span>
       ${j.genres.includes("Documentary") ? '<span class="tag acc">Documentary</span>' : ""}${j.source === "inbox" ? '<span class="tag">From the Inbox</span>' : ""}</div>`;
     if (j.status === "draft" || j.status === "needs_answer") {
-      body += libChips(j, ov) + targetLine(j) + noteBlock(j) + questionBlock(j);
+      body += libChips(j, ov) + targetLine(j) + noteBlock(j) + findBlock(j) + questionBlock(j);
       if (j.status === "draft") {
         body += `<div class="row"><button class="btn primary" data-action="start" data-job="${j.id}">Start</button>
           <button class="btn" data-action="tonight" data-job="${j.id}">Tonight</button>
@@ -609,7 +770,7 @@
         <span>${nightLink ? "Starts " + fmtTime(nightLink.not_before) : windowLink ? "Waits for the download window, " + fmtTime(windowLink.window_at) : errs ? `${errs} link${errs > 1 ? "s" : ""} need${errs > 1 ? "" : "s"} you` : j.wait_all && j.status === "waiting" ? "Waiting for the other links" : ""}</span></div>
         <div class="row"><a class="btn sm ghost" href="#/job/${j.id}">Details</a>${j.status !== "moving" ? `<button class="btn sm ghost danger" data-action="cancel" data-job="${j.id}">Cancel</button>` : ""}</div>`;
     }
-    return `<div class="card job">${posterEl(j.poster, j.title)}<div class="job-body">${body}</div></div>`;
+    return `<div class="card job">${j.tmdb_id ? posterEl(j.poster, j.title, "sm") : `<div class="poster sm unknown" aria-hidden="true">?</div>`}<div class="job-body">${body}</div></div>`;
   }
 
   // ---------- one job ----------
@@ -624,14 +785,15 @@
     title(j.title);
     const editable = !["moving", "done", "canceled"].includes(j.status);
     const pct = j.size ? Math.min(100, Math.round((100 * j.done_bytes) / j.size)) : 0;
-    let html = `<div class="card job section">${posterEl(j.poster, j.title)}<div class="job-body">
+    let html = `<div class="job section">${posterEl(j.poster, j.title, "md")}<div class="job-body">
       <div class="spread"><div class="job-title">${titleYear(j)}</div>${statusTag(j.status)}</div>
       <div class="meta"><span>${j.kind === "movie" ? "Movie" : "Series"}</span><span>${fmtBytes(j.size)}</span>${j.genres.map((g) => `<span>${esc(g)}</span>`).join("")}</div>
-      ${j.target && !j.show_unknown ? `<div class="path">${esc(j.target)}${j.kind === "series" ? "/" + esc(seasonsOf(j)) : ""}</div>` : ""}
+      ${j.library && !j.show_unknown ? `<div class="path">${esc(destOf(j))}</div>` : ""}
       ${j.error ? `<div class="err">${esc(j.error)}</div>` : ""}
       ${!["draft", "canceled"].includes(j.status) ? steps(j) : ""}
       ${!["draft", "done", "canceled"].includes(j.status) ? `<div class="bar"><i style="width:${pct}%"></i></div><div class="muted small">${pct}% of ${fmtBytes(j.size)}</div>` : ""}
-      ${j.note && j.status === "draft" && !j.recheck && !j.show_unknown ? `<div class="question small">${esc(j.note)} Search below to pick the right one, or press Start if it is.</div>` : ""}
+      ${j.note && j.status === "draft" && !j.recheck && !j.show_unknown && j.tmdb_id ? `<div class="question small">${esc(j.note)} Search below to pick the right one, or press Start if it is.</div>` : ""}
+      ${findBlock(j)}
       ${j.moved ? `<div class="small">${movedLine(j)} ${plexTag(j)} <a href="#/history">History</a></div>` : ""}
       ${j.moved && j.kind === "series" && j.moved.history_id ? `<div class="row"><a class="btn sm" href="#/history?fixshow=${j.moved.history_id}">Fix show</a><span class="muted small">Filed under the wrong show or season?</span></div>` : ""}
       ${questionBlock(j)}</div></div>`;
@@ -657,7 +819,7 @@
         <label class="f"><span>Archive password (only if the download is a locked zip or rar)</span><input type="password" id="j-pass" placeholder="${j.has_password ? "Saved. Type to change it." : ""}" autocomplete="off"></label>
         <div class="row"><button class="btn primary" data-action="save-job" data-job="${j.id}" data-start="${draft ? 1 : ""}">${draft ? "Save and start" : "Save"}</button>
         ${draft ? `<button class="btn ghost" data-action="save-job" data-job="${j.id}">Save only</button>` : ""}<span class="muted small">Changing the title or year recalculates the folder.</span></div></div>`;
-      html += `<div class="section card stack"><h2>Wrong title?</h2><form class="row" id="tmdb-form"><input type="search" id="tmdb-q" class="grow" placeholder="Search TMDB" value="${esc(j.title)}" style="flex:1"><button class="btn">Search</button></form><div id="tmdb-results"></div></div>`;
+      if (j.tmdb_id) html += `<div class="section card stack"><h2>Wrong title?</h2><p class="muted small" style="margin:0">Pick the right one and the folder and files are named after it.</p><form class="row" id="tmdb-form"><input type="search" id="tmdb-q" placeholder="Search TMDB" value="${esc(j.title)}" style="flex:1 1 200px;width:auto"><button class="btn">Search</button></form><div id="tmdb-results"></div></div>`;
     }
     html += `<div class="section"><div class="spread"><h2>Links</h2>${editable ? `<form class="row more-link" id="more-link"><input type="text" id="more-url" placeholder="Add another link to this ${j.kind === "series" ? "show" : "job"}"><button class="btn sm">Add</button></form>` : ""}</div><div class="cards">`;
     for (const l of j.links) {
@@ -678,7 +840,7 @@
     if (j.status === "draft") html += `<button class="btn primary" data-action="start" data-job="${j.id}">Start now</button><button class="btn" data-action="tonight" data-job="${j.id}">Start tonight</button>`;
     if (j.status === "failed" || j.status === "canceled") html += `<button class="btn primary" data-action="start" data-job="${j.id}">Try again</button>`;
     if (editable) html += `<div class="grow"></div><button class="btn ghost danger" data-action="cancel" data-job="${j.id}">Cancel</button>`;
-    if (["done", "canceled", "failed"].includes(j.status)) html += `<div class="grow"></div><button class="btn ghost danger" data-action="delete-job" data-job="${j.id}">Remove from list</button>`;
+    if (["done", "canceled", "failed"].includes(j.status)) html += `<div class="grow"></div><button class="btn ghost danger" data-action="remove-job" data-job="${j.id}">Remove from list</button>`;
     html += `</div>`;
     if (refresh) morph(page(), html); else page().innerHTML = html;
 
@@ -712,7 +874,7 @@
     box.innerHTML = `<div class="muted small">Searching…</div>`;
     try {
       const hits = await api("GET", "/api/tmdb/search?q=" + encodeURIComponent($("#tmdb-q").value));
-      box.innerHTML = hits.length ? `<div class="list">${hits.slice(0, 8).map((h) => `<div class="li">${posterEl(h.poster, h.title, "sm")}
+      box.innerHTML = hits.length ? `<div class="list">${hits.slice(0, 8).map((h) => `<div class="li">${posterEl(h.poster, h.title, "xs")}
         <div class="grow"><div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""} <span class="tag">${h.kind === "movie" ? "Movie" : "Series"}</span></div>
         <div class="muted tiny ellipsis">${esc(h.overview)}</div></div><button class="btn sm" data-action="use-tmdb" data-job="${j.id}" data-id="${h.id}" data-kind="${h.kind}">Use this</button></div>`).join("")}</div>`
         : `<div class="muted small">Nothing found.</div>`;
@@ -809,7 +971,7 @@
       const folders = await api("GET", `/api/libraries/${id}/folders`);
       title(l ? l.name : "Library");
       out.innerHTML = `<div class="muted small section">${folders.length} folder${folders.length === 1 ? "" : "s"}${l ? " in " + esc(l.path) : ""}</div>
-        <div class="card list">${folders.map((f) => `<div class="li"><span class="grow ellipsis">${esc(f)}</span><a class="small" href="#/library?q=${encodeURIComponent(f.replace(/\s*\(\d{4}\)\s*$/, ""))}">Look up</a></div>`).join("") || '<div class="li muted">Empty.</div>'}</div>`;
+        <div class="list">${folders.map((f) => `<div class="li"><span class="grow ellipsis">${esc(f)}</span><a class="small" href="#/library?q=${encodeURIComponent(f.replace(/\s*\(\d{4}\)\s*$/, ""))}">Look up</a></div>`).join("") || '<div class="li muted">Empty.</div>'}</div>`;
     } catch (e) { out.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
 
@@ -832,13 +994,13 @@
   }
 
   function resultCard(r) {
-    const have = r.have ? `<span class="tag ${r.have.score >= 0.97 ? "ok" : "warn"}">${r.have.score >= 0.97 ? "In" : "Maybe in"} ${esc(r.have.library)}</span><div class="path">${esc(r.have.folder)}</div>` : `<span class="tag">Not in your library</span>`;
+    const have = r.have ? `<div><span class="tag ${r.have.score >= 0.97 ? "ok" : "warn"}">${r.have.score >= 0.97 ? "In" : "Maybe in"} ${esc(r.have.library)}</span></div><div class="path">${esc(r.have.folder)}</div>` : `<div><span class="tag">Not in your library</span></div>`;
     const disk = Object.entries(r.seasons_on_disk || {});
     const seasons = disk.length ? `<div class="chips">${disk.map(([n, c]) => `<span class="chip static have" title="${c} files">S${n}</span>`).join("")}</div>` : "";
     const more = r.id && r.kind === "series" ? `<button class="btn sm" data-action="show" data-id="${r.id}" data-name="${esc(r.title)}" data-folder="${esc(r.have ? r.have.folder : "")}" data-lib="${r.have ? r.have.library_id : ""}">Seasons and news</button>`
       : r.id && r.kind === "movie" && !r.have ? `<button class="btn sm" data-action="track-movie" data-id="${r.id}">Track release</button>` : "";
     const missing = r.missing ? `<div class="small gap">${esc(r.missing)}</div>` : "";
-    return `<div class="card result${r.pinned ? " pinned" : ""}">${posterEl(r.poster, r.title)}<div class="job-body"><div><b>${esc(r.title)}</b> ${r.year ? `<span class="muted">(${r.year})</span>` : ""}</div>
+    return `<div class="result${r.pinned ? " pinned" : ""}"><div class="job-body"><div><b>${esc(r.title)}</b> ${r.year ? `<span class="yr">${r.year}</span>` : ""}</div>
       <div class="meta">${r.kind ? `<span>${r.kind === "movie" ? "Movie" : "Series"}</span>` : ""}${r.documentary ? '<span class="tag acc">Documentary</span>' : ""}</div>
       ${have}${seasons}${missing}<div class="row">${more}</div><div class="show-box" id="show-${r.id}"></div></div></div>`;
   }
@@ -862,7 +1024,7 @@
 
   // ---------- tracker: series and movies ----------
   const onTracker = () => ["tracker", "shows"].includes(state.route);
-  // The Watched tab is there once folder watch is on (Settings → Extras).
+  // The Watched tab is there once folder watch is on (Settings → Downloads).
   const watchOn = () => !!(state.overview && state.overview.extras && state.overview.extras.watch);
   const trackerTabs = (tab) => `<div class="tabs">${[["series", "Series"], ["movies", "Movies"]].concat(watchOn() || tab === "monitored" ? [["monitored", "Monitored links"]] : []).map(([k, t]) =>
     `<a href="#/tracker?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</div>`;
@@ -884,12 +1046,12 @@
       if (!onTracker()) return;
       const intro = r.enabled
         ? `<p class="muted small section">Linkarr opens these MEGA folder links ${everyText(r.every)} and downloads only the new episodes.${r.stop_days ? ` A link with nothing new for ${r.stop_days} days stops by itself.` : ""} Add one with Monitor this link on a show's Details page, or send <span class="mono">/monitor</span> and the link to the bot.</p>`
-        : `<div class="card alert info section"><span class="ic">${ICON.info}</span><div class="grow"><h3>Monitored links are off</h3><div class="muted small">Nothing here is checked until you turn it on.</div></div><a class="btn sm primary" href="#/settings?tab=extras">Turn on</a></div>`;
+        : `<div class="card alert info section"><span class="ic">${ICON.info}</span><div class="grow"><h3>Monitored links are off</h3><div class="muted small">Nothing here is checked until you turn it on.</div></div><a class="btn sm primary" href="#/settings?tab=downloads">Turn on</a></div>`;
       page().innerHTML = trackerTabs("monitored") + intro + (r.watches.length
-        ? `<div class="card list watched">${r.watches.map((w) => {
+        ? `<div class="list watched">${r.watches.map((w) => {
             const [t, c] = WATCH_TAG[w.status] || [w.status, ""];
             const why = w.status === "stopped" ? (w.stop_reason === "idle" ? "Nothing new lately" : "Stopped by you") : w.status === "dead" ? "Folder removed" : "";
-            return `<div class="li">${posterEl(w.poster, w.title, "sm")}<div class="grow">
+            return `<div class="li">${posterEl(w.poster, w.title, "xs")}<div class="grow">
               <div class="r-title"><b>${esc(w.title)}</b>${w.year ? ` <span class="yr">(${esc(w.year)})</span>` : ""}</div>
               <div class="kv"><span>Last checked</span><b>${w.last_check ? fmtAgo(w.last_check) : "Not yet"}</b></div>
               <div class="kv"><span>Episodes</span><b>${w.episodes}</b></div>
@@ -913,7 +1075,7 @@
       page().innerHTML = trackerTabs("movies") + `<p class="muted small section">Add a movie you're waiting for. Linkarr checks once a day and tells you when it's out on Blu-ray, to buy or rent, or on a streaming service. It drops off this list once it's in your library.</p>
         <form class="row section lib-search" id="mv-form"><span class="lib-ico">${ICON.search}</span><input type="search" id="mv-q" placeholder="Find a movie to track" style="flex:1"><button class="btn">Search</button></form>
         <div id="mv-results" class="section"></div>` + (rows.length
-        ? `<div class="card list movies">${rows.map((m) => `<div class="li">${posterEl(m.poster, m.title, "sm")}<div class="grow">
+        ? `<div class="list movies">${rows.map((m) => `<div class="li">${posterEl(m.poster, m.title, "xs")}<div class="grow">
             <div class="r-title"><b>${esc(m.title)}</b>${m.year ? ` <span class="yr">(${esc(m.year)})</span>` : ""}</div>
             ${m.lines.length ? m.lines.map((x) => `<div class="kv"><span>${esc(x.label)}</span><b class="${x.out ? "is-out" : ""}">${esc(x.value)}</b></div>`).join("")
               : `<div class="muted small">${m.checked ? "No home release dates yet." : "Not checked yet."}</div>`}</div>
@@ -929,7 +1091,7 @@
     box.innerHTML = `<div class="muted small">Searching…</div>`;
     try {
       const hits = (await api("GET", "/api/tmdb/search?kind=movie&q=" + encodeURIComponent(text))).slice(0, 6);
-      box.innerHTML = hits.length ? `<div class="card list">${hits.map((h) => `<div class="li">${posterEl(h.poster, h.title, "sm")}<div class="grow">
+      box.innerHTML = hits.length ? `<div class="list">${hits.map((h) => `<div class="li">${posterEl(h.poster, h.title, "xs")}<div class="grow">
           <div><b>${esc(h.title)}</b> ${h.year ? `<span class="muted">(${h.year})</span>` : ""}</div><div class="muted tiny ellipsis">${esc(h.overview)}</div></div>
           <button class="btn sm primary" data-action="track-movie" data-id="${h.id}">Track</button></div>`).join("")}</div>` : `<div class="muted small">Nothing found.</div>`;
     } catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -941,15 +1103,26 @@
       if (!onTracker()) return;
       page().innerHTML = trackerTabs("series") + `<div class="row section" style="align-items:flex-start;gap:12px;flex-wrap:wrap"><p class="muted small" style="margin:0;flex:1 1 280px">Linkarr checks these once a day and tells you when a season starts, a finale airs, or a show ends. Anything it files into a series library is added; switch one off any time.</p>
         <button class="btn primary" data-action="track-all" ${imp.running ? "disabled" : ""}>${ICON.plus}Track all my series</button></div>
-        <div id="track-all">${trackAllBox(imp)}</div>` + (rows.length
-        ? showFilter(rows) + `<div class="card list">${rows.filter((s) => !state.gapsOnly || s.missing).map((s) => `<div class="li"><div class="grow"><b>${esc(s.name)}</b>
+        <div id="track-all">${trackAllBox(imp)}</div>` + comingUp(rows) + (rows.length
+        ? `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Series you track</h2><span class="count num">${rows.length}</span></div></div>` + showFilter(rows) + `<div class="list shows">${rows.filter((s) => !state.gapsOnly || s.missing).map((s) => `<div class="li"><div class="grow"><b>${esc(s.name)}</b>
           <div class="muted small">${esc(s.status || "Not checked yet")}${s.next_air ? " · next episode " + esc(s.next_air) : ""}${s.seasons ? ` · ${s.seasons} season${s.seasons === 1 ? "" : "s"}` : ""}</div>
           ${s.missing ? `<div class="small gap">${esc(s.missing)}</div>` : s.checked ? `<div class="small have-all">You have every episode</div>` : ""}</div>
           ${s.missing ? `<a class="btn sm" href="#/library?q=${encodeURIComponent(s.name)}&tmdb=${s.tmdb_id}">Find</a>` : ""}
-          <button class="btn sm ghost" data-action="unwatch" data-id="${s.tmdb_id}">Stop</button></div>`).join("")}</div>`
+          <button class="btn sm ghost" data-action="unwatch" data-id="${s.tmdb_id}">Stop</button></div>`).join("")}</div></div>`
         : `<div class="empty"><b>No series yet</b>Press “Track all my series” to add the shows you already have, or turn it on from a search result in Library.</div>`);
       if (imp.running) every(pollTrackAll, 1500);
     } catch (e) { page().innerHTML = trackerTabs("series") + `<div class="err">${esc(e.message)}</div>`; }
+  }
+
+  // The next two weeks of new episodes for shows you track, each with a small poster.
+  function comingUp(rows) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const soon = rows.filter((s) => s.next_air).map((s) => ({ s, d: new Date(s.next_air + "T00:00:00") }))
+      .filter((x) => !isNaN(x.d) && x.d >= today && (x.d - today) / 864e5 <= 14).sort((a, b) => a.d - b.d).slice(0, 12);
+    if (!soon.length) return "";
+    const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? "TODAY" : n === 1 ? "TOMORROW" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).toUpperCase(); };
+    return `<div class="section"><div class="spread"><div class="row" style="gap:10px;align-items:baseline"><h2>Coming up</h2><span class="count num">next 14 days</span></div></div>
+      <div class="coming">${soon.map(({ s, d }) => `<div class="it">${posterEl(s.poster, s.name)}<div class="when">${esc(when(d))}</div><div class="t">${esc(s.name)}</div></div>`).join("")}</div></div>`;
   }
 
   function showFilter(rows) {
@@ -985,7 +1158,7 @@
     title("History");
     try {
       const rows = state.history = await api("GET", "/api/history");
-      page().innerHTML = rows.length ? `<div class="card list">${rows.map((h) => `<div class="li">${posterEl(h.poster, h.title || h.summary, "sm")}
+      page().innerHTML = rows.length ? `<div class="list">${rows.map((h) => `<div class="li" style="align-items:flex-start">${posterEl(h.poster, h.title || h.summary, "xs")}
         <div class="grow"><div class="ellipsis"><b>${esc(h.title || h.summary)}</b></div><div class="muted small">${esc(h.summary)} · ${h.moves.length} file${h.moves.length === 1 ? "" : "s"}${h.recycled.length ? ` · ${h.recycled.length} replaced` : ""} · ${fmtAgo(h.ts)}</div>
         <details class="tiny"><summary class="muted">Files</summary><div class="path">${h.moves.map((m) => esc(m.to || "")).join("<br>")}</div></details>
         ${h.undone_at ? '<span class="tag">Undone</span>' : `<div class="row" style="margin-top:6px">${!h.kind || h.kind === "series" ? `<button class="btn sm" data-action="fixshow" data-id="${h.id}">Fix show</button>` : ""}<button class="btn sm" data-action="refile" data-id="${h.id}">Move to…</button><button class="btn sm ghost" data-action="undo" data-id="${h.id}">Undo</button></div>`}</div></div>
@@ -1036,136 +1209,144 @@
   }
 
   // ---------- settings ----------
-  const TABS = [["check", "Setup check"], ["libraries", "Libraries"], ["mega", "MEGA"], ["connections", "Connections"], ["naming", "Naming"], ["behaviour", "Behaviour"], ["extras", "Extras"],
-    ["look", "Look"], ["tools", "Tools"], ["logs", "Logs"], ["account", "Account and backup"]];
-  const THEMES = [["dark", "Dark Utility", ["#0e1115", "#151a20", "#f2a93b"]], ["light", "Light", ["#f4f5f8", "#ffffff", "#4f46e5"]],
-    ["poster", "Poster", ["#0b0c10", "#1a1d26", "#7dd3fc"]], ["postermono", "Poster Mono", ["#0a0b0f", "#1a1d27", "#7dd3fc"]],
-    ["mono", "Mono", ["#fafafa", "#e4e4e4", "#111111"]], ["terminal", "Terminal", ["#000000", "#121813", "#3ddc71"]], ["auto", "Match device", ["#0e1115", "#f4f5f8", "#f2a93b"]]];
-  const settingsTabs = (tab) => `<div class="tabs">${TABS.map(([k, t]) => `<a href="#/settings?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}
-    <a href="#/history" class="tab-link">History</a></div>`;
+  // Eight pages instead of eleven. Each page is sections with what it's for on the left and the fields on the
+  // right, and one Save at the bottom that saves everything on the page, keys and tokens included.
+  const TABS = [["check", "Setup check"], ["libraries", "Libraries"], ["accounts", "Accounts"], ["servers", "Media servers"], ["telegram", "Telegram"],
+    ["downloads", "Downloads"], ["naming", "Naming"], ["system", "System"]];
+  const OLD_TABS = { mega: "accounts", connections: "accounts", behaviour: "downloads", extras: "downloads", look: "system", tools: "system", logs: "system", account: "system" };
+  const THEMES = [["dark", "Dark", ["#0d0d0c", "#f2a93b"]], ["light", "Light", ["#f1f0eb", "#b23a0a"]], ["auto", "Match device", ["#0d0d0c", "#f1f0eb"]]];
+  const settingsTabs = (tab) => `<nav class="tabs" aria-label="Settings">${TABS.map(([k, t]) => `<a href="#/settings?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</nav>
+    <select class="tab-select" aria-label="Settings page" data-tab-select>${TABS.map(([k, t]) => `<option value="${k}"${k === tab ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+  const setSec = (title, about, fields, tag) => `<section class="set"><div class="about"><h2>${title}</h2>${about ? `<p>${about}</p>` : ""}${tag || ""}</div><div class="fields">${fields}</div></section>`;
+  const saveBar = () => `<div class="savebar" id="savebar"><button class="btn primary" data-action="save-all">Save changes</button><span class="note" id="save-note">Nothing changed yet.</span></div>`;
 
   async function renderSettings(q) {
     title("Settings");
-    const tab = q.get("tab") || "check";
+    let tab = q.get("tab") || "check";
+    tab = OLD_TABS[tab] || tab;
     if (tab === "check") return renderCheck();
-    if (tab === "logs") return renderLogs();
-    if (tab === "tools") return renderDecoder();
     try { state.settings = await api("GET", "/api/settings"); } catch (e) { page().innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
     const s = state.settings;
     const p = s.prefs;
     let html = settingsTabs(tab);
     const field = (k, label, type, extra) => `<label class="f"><span>${label}</span><input type="${type || "text"}" data-pref="${k}" value="${esc(Array.isArray(p[k]) ? p[k].join(", ") : p[k])}" ${extra || ""}></label>`;
-    const box = (k, label, hint) => `<label class="check"><input type="checkbox" data-pref="${k}" ${p[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted small">${hint}</span>` : ""}</span></label>`;
-    const save = `<div class="row"><button class="btn primary" data-action="save-prefs">Save</button></div>`;
+    const box = (k, label, hint) => `<label class="check"><input type="checkbox" data-pref="${k}" ${p[k] ? "checked" : ""}><span>${label}${hint ? `<span class="hint">${hint}</span>` : ""}</span></label>`;
+    const sel = (k, opts) => `<select data-pref="${k}">${opts.map(([v, t]) => `<option value="${v}"${String(p[k]) === String(v) ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+    const isSet = (n) => (s.secrets[n] ? '<span class="tag ok">Saved</span>' : '<span class="tag">Not set</span>');
+    const secret = (n, label) => `<div class="row"><label class="f grow"><span>${label}</span><input type="password" data-secret="${n}" placeholder="${s.secrets[n] ? "Saved. Paste a new one to change it." : ""}" autocomplete="off"></label>
+      ${s.secrets[n] ? `<button class="btn sm ghost danger" data-action="clear-secret" data-name="${n}" style="align-self:flex-end">Remove</button>` : ""}</div>`;
+    let bar = true;
 
     if (tab === "libraries") {
-      html += `<div class="card stack"><p class="muted small">Folders are inside the media folder mapped into the container (<span class="mono">${esc(s.media_dir)}</span>). Mark a library as Documentary and TMDB's Documentary genre picks it automatically.</p>
+      bar = false;
+      html += `<p class="muted small">Folders are inside the media folder mapped into the container (<span class="mono">${esc(s.media_dir)}</span>). Mark a library as Docs and TMDB's Documentary genre picks it by itself.</p>
         <div class="lib-row head"><span>Name</span><span>Type</span><span>Folder</span><span>Plex library</span><span></span></div>
         ${s.libraries.map((l, i) => libRow(l, i, s.libraries.length)).join("")}
-        <div style="border-top:1px solid var(--line);padding-top:12px"><h3 style="margin-bottom:8px">Add a library</h3>${libRow({ id: "", name: "", kind: "movie", path: "", documentary: 0, plex_section: "" }, -1, 0)}</div>
-        <div class="row"><button class="btn sm ghost" data-action="plex-sections">Load Plex libraries</button><span class="muted small" id="plex-list"></span></div></div>`;
-    } else if (tab === "mega") {
-      html += `<div class="card stack">` + (s.mega.email
-        ? `<div class="spread"><div><h3>Signed in</h3><div class="muted">${esc(s.mega.email)}</div></div><button class="btn" data-action="mega-logout">Sign out</button></div>
-           <p class="muted small">Linkarr downloads with your account so your Pro transfer quota applies. Your password isn't stored; MEGA's own tool keeps the session.</p>
-           ${s.quota && s.quota.max ? `<div class="quota big"><div class="spread"><span>Transfer allowance</span><span>${fmtBytes(Math.max(0, s.quota.max - s.quota.used))} left of ${fmtBytes(s.quota.max)}</span></div>
-             <div class="bar${s.quota.used / s.quota.max >= 0.9 ? " low" : ""}"><i style="width:${Math.min(100, Math.round((100 * s.quota.used) / s.quota.max))}%"></i></div></div>` : ""}
-           ${box("quota_guard", "Hold a download that would go over what's left", "It waits and starts by itself once your allowance has room again, instead of stopping halfway.")}
-           <div class="row"><button class="btn primary" data-action="save-prefs">Save</button><button class="btn" data-action="quota">Check the allowance now</button></div>`
+        <div class="section-head" style="margin-top:20px"><h2>Add a library</h2></div>${libRow({ id: "", name: "", kind: "movie", path: "", documentary: 0, plex_section: "" }, -1, 0)}
+        <div class="row" style="margin-top:12px"><button class="btn sm" data-action="plex-sections">Load Plex libraries</button><span class="muted small" id="plex-list"></span></div>`;
+    } else if (tab === "accounts") {
+      const q2 = s.quota;
+      html += setSec("MEGA", "Downloads use your account, so your transfer allowance applies. Your password goes straight to MEGA's own tool and isn't saved by Linkarr.",
+        s.mega.email ? `<div class="spread"><div><div class="label ok">Signed in</div><div>${esc(s.mega.email)}</div></div><button class="btn sm" data-action="mega-logout">Sign out</button></div>
+          ${q2 && q2.max ? `<div class="quota big"><div class="spread small"><span>Transfer allowance</span><span class="num">${fmtBytes(Math.max(0, q2.max - q2.used))} left of ${fmtBytes(q2.max)}</span></div>
+            <div class="bar${q2.used / q2.max >= 0.9 ? " low" : ""}"><i style="width:${Math.min(100, Math.round((100 * q2.used) / q2.max))}%"></i></div></div>` : ""}
+          ${box("quota_guard", "Hold a download that would go over what's left", "It waits and starts by itself once there's room again, instead of stopping halfway.")}
+          <div class="row"><button class="btn sm" data-action="quota">Check the allowance now</button></div>`
         : `${s.mega.installed ? "" : `<div class="err">MEGAcmd isn't installed in this container. Use the official Linkarr image.</div>`}
-           <p class="muted small">Sign in so downloads use your account's transfer quota. Your password goes straight to MEGA's own tool and isn't saved by Linkarr.</p>
-           <form class="stack" id="mega-form"><div class="grid2"><label class="f"><span>Email</span><input type="text" name="email" autocomplete="off" required></label>
-           <label class="f"><span>Password</span><input type="password" name="password" autocomplete="off" required></label></div>
-           <label class="f"><span>Two-factor code (if you use it)</span><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"></label>
-           <div class="row"><button class="btn primary">Sign in to MEGA</button></div></form>`) + `</div>`;
-    } else if (tab === "connections") {
-      const set = (n) => (s.secrets[n] ? '<span class="tag ok">saved</span>' : '<span class="tag">not set</span>');
-      html += `<div class="card stack section"><h2>Download site</h2>
-          <p class="muted small">The site you get links from. It shows in the menu (and the phone's bottom bar) and opens in a new tab. Change it here whenever the address moves.</p>
-          <div class="grid3">${field("site_name", "Name", "text", 'placeholder="My site" maxlength="40"')}${field("site_url", "Address", "url", 'placeholder="https://…"')}${field("site_badge", "Icon letters (up to 3)", "text", 'placeholder="ML" maxlength="3"')}</div>
-          <div class="muted small">Leave the icon letters blank to use the capitals in the name.</div>
-          <div class="row"><button class="btn primary" data-action="save-prefs">Save</button></div></div>
-        <div class="card stack section"><div class="spread"><h2>TMDB</h2>${set("tmdb_key")}</div>
-          <p class="muted small">Finds the right title, year and poster. Free key at themoviedb.org → Settings → API. The API key or the read access token both work.</p>
-          <div class="row"><input type="password" id="sec-tmdb_key" placeholder="${s.secrets.tmdb_key ? "Saved. Paste a new one to change it." : "TMDB key"}" autocomplete="off" style="flex:1"><button class="btn" data-action="save-secret" data-name="tmdb_key">Save</button></div></div>
-        <div class="card stack section"><div class="spread"><h2>Plex</h2>${set("plex_token")}</div>
-          <p class="muted small">Optional. Plex rescans the right library when something lands.</p>
-          ${field("plex_url", "Plex address", "url", 'placeholder="http://192.168.0.2:32400"')}
-          <div class="row"><input type="password" id="sec-plex_token" placeholder="${s.secrets.plex_token ? "Saved. Paste a new one to change it." : "Plex token"}" autocomplete="off" style="flex:1"><button class="btn" data-action="save-secret" data-name="plex_token">Save token</button></div>
-          ${save}</div>
-        <div class="card stack"><div class="spread"><h2>Telegram</h2>${set("telegram_token")}</div>
-          <p class="muted small">Optional. Send links to your bot, answer questions with buttons, get told when things land. Make a bot with @BotFather, paste its token, then send /start to it to get your chat id.</p>
-          <div class="row"><input type="password" id="sec-telegram_token" placeholder="${s.secrets.telegram_token ? "Saved. Paste a new one to change it." : "Bot token"}" autocomplete="off" style="flex:1"><button class="btn" data-action="save-secret" data-name="telegram_token">Save token</button></div>
-          ${field("telegram_chats", "Allowed chat ids (comma separated)")}
-          ${box("notify_done", "Tell me when something lands")}${box("notify_series", "Show news: new season dates, finales, ended or canceled")}
-          ${box("notify_movies", "Movie Tracker news: Blu-ray, digital and streaming dates")}
-          <div class="row">${box("roundup_enabled", "Weekly roundup", "What was added, which shows have new episodes in the next two weeks, and your MEGA allowance. Sent at 10:00.")}
-          <label class="f" style="width:auto"><span>On</span><select data-pref="roundup_day">${["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((x) => `<option value="${x}"${p.roundup_day === x ? " selected" : ""}>${{ mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" }[x]}</option>`).join("")}</select></label></div>
-          ${box("chat_clear", "Clear the chat every night", "Each day starts with an empty chat. Pinned messages stay. Telegram only lets a bot delete messages from the last 48 hours. In a group, the bot must be an admin to delete your messages.")}
-          <div class="grid3">${field("chat_clear_time", "Clear at", "time")}</div>
-          ${box("chat_clear_keep_open", "Keep cards that still need an answer", "Captcha links, drafts and questions stay until you answer them.")}
-          <div class="row"><button class="btn primary" data-action="save-prefs">Save</button><button class="btn" data-action="tg-test">Send a test message</button><button class="btn ghost" data-action="roundup">Send the roundup now</button><button class="btn ghost" data-action="tg-clear">Clear the chat now</button></div></div>
-        <div class="card stack" style="margin-top:12px"><div class="spread"><h2>Subtitles</h2>${set("opensubtitles_key")}</div>
-          <p class="muted small">Optional. After a movie or episode is filed, Linkarr saves a subtitle next to it from OpenSubtitles.com, unless one is already there. Get a free API key at opensubtitles.com → your profile → API consumers. Adding your OpenSubtitles login raises the daily allowance (20 a day free, more with VIP).</p>
-          ${box("subs_enabled", "Fetch subtitles after filing")}
-          <div class="grid2">${field("subs_languages", "Languages (up to 3, like en, it)")}${field("opensubtitles_user", "OpenSubtitles username (optional)")}</div>
-          <div class="row"><input type="password" id="sec-opensubtitles_key" placeholder="${s.secrets.opensubtitles_key ? "Saved. Paste a new one to change it." : "API key"}" autocomplete="off" style="flex:1"><button class="btn" data-action="save-secret" data-name="opensubtitles_key">Save key</button></div>
-          <div class="row"><input type="password" id="sec-opensubtitles_password" placeholder="${s.secrets.opensubtitles_password ? "Saved. Type a new one to change it." : "OpenSubtitles password (optional)"}" autocomplete="off" style="flex:1"><button class="btn" data-action="save-secret" data-name="opensubtitles_password">Save password</button></div>
-          <div class="row"><button class="btn primary" data-action="save-prefs">Save</button><button class="btn" data-action="subs-test">Test</button></div></div>`;
+          <form class="stack" id="mega-form"><div class="grid2"><label class="f"><span>Email</span><input type="text" name="email" autocomplete="off" required></label>
+          <label class="f"><span>Password</span><input type="password" name="password" autocomplete="off" required></label></div>
+          <label class="f"><span>Two-factor code, if you use it</span><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"></label>
+          <div class="row"><button class="btn primary">Sign in to MEGA</button></div></form>`);
+      html += setSec("TMDB", "Finds the right title, year and poster. Get a free key at themoviedb.org, Settings, API. The API key or the read access token both work.",
+        secret("tmdb_key", "TMDB key"), isSet("tmdb_key"));
+      html += setSec("Download site", "The site you get links from. It shows in the menu and the phone's bottom bar and opens in a new tab.",
+        `<div class="grid3">${field("site_name", "Name", "text", 'placeholder="My site" maxlength="40"')}${field("site_url", "Address", "url", 'placeholder="https://…"')}${field("site_badge", "Icon letters", "text", 'placeholder="MS" maxlength="3"')}</div>
+        <div class="muted small">Leave the icon letters empty to use the capitals in the name.</div>`);
+      html += setSec("Send to Linkarr", "Send a whole post from the forum page in one tap. Linkarr shows the links it found and you pick which to add.", sendToLinkarr(p));
+    } else if (tab === "servers") {
+      html += setSec("Plex", "Plex scans the right library when something lands, and Linkarr checks it showed up.",
+        `${field("plex_url", "Plex address", "url", 'placeholder="http://192.168.0.2:32400"')}${secret("plex_token", "Plex token")}
+        ${box("plex_partial", "Scan only the folder that changed", "So new things show up sooner. Falls back to the whole library when Linkarr can't work out Plex's folder.")}`, isSet("plex_token"));
+      html += setSec("Jellyfin", "Jellyfin scans its libraries when something lands. Make an API key in Jellyfin: Dashboard, API Keys.",
+        `${field("jellyfin_url", "Jellyfin address", "url", 'placeholder="http://192.168.0.2:8096"')}${secret("jellyfin_key", "API key")}
+        <div class="row"><button class="btn sm" data-action="server-test" data-kind="jellyfin">Test</button></div>`, isSet("jellyfin_key"));
+      html += setSec("Emby", "Emby scans its libraries when something lands. Make an API key in Emby: Settings, Advanced, API Keys.",
+        `${field("emby_url", "Emby address", "url", 'placeholder="http://192.168.0.2:8096"')}${secret("emby_key", "API key")}
+        <div class="row"><button class="btn sm" data-action="server-test" data-kind="emby">Test</button></div>`, isSet("emby_key"));
+    } else if (tab === "telegram") {
+      html += setSec("Bot", "Send links to your bot, answer questions with buttons, get told when things land. Make a bot with @BotFather, paste its token, then send /start to it to see your chat id.",
+        `${secret("telegram_token", "Bot token")}${field("telegram_chats", "Allowed chat ids, comma separated")}
+        <div class="row"><button class="btn sm" data-action="tg-test">Send a test message</button></div>`, isSet("telegram_token"));
+      html += setSec("Messages", "",
+        `${box("notify_done", "Tell me when something lands")}${box("notify_series", "Show news", "New season dates, finales, ended or canceled.")}
+        ${box("notify_movies", "Movie Tracker news", "Blu-ray, digital and streaming dates.")}
+        ${box("morning_summary", "Morning summary", "One message with what came in overnight. Nothing is sent after a quiet night.")}
+        <div class="grid3">${field("morning_time", "Send at", "time")}</div>
+        ${box("roundup_enabled", "Weekly roundup", "What was added, which shows have new episodes in the next two weeks, and your MEGA allowance. Sent at 10:00.")}
+        <div class="grid3"><label class="f"><span>On</span>${sel("roundup_day", [["mon", "Monday"], ["tue", "Tuesday"], ["wed", "Wednesday"], ["thu", "Thursday"], ["fri", "Friday"], ["sat", "Saturday"], ["sun", "Sunday"]])}</label></div>
+        <div class="row"><button class="btn sm ghost" data-action="morning">Send the summary now</button><button class="btn sm ghost" data-action="roundup">Send the roundup now</button></div>`);
+      html += setSec("Clear the chat", "Off unless you turn it on.",
+        `${box("chat_clear", "Clear the chat every night", "Each day starts with an empty chat. Pinned messages stay. Telegram only lets a bot delete messages from the last 48 hours, and in a group the bot must be an admin.")}
+        <div class="grid3">${field("chat_clear_time", "Clear at", "time")}</div>
+        ${box("chat_clear_keep_open", "Keep cards that still need an answer", "Captcha links, drafts and questions stay until you answer them.")}
+        <div class="row"><button class="btn sm ghost" data-action="tg-clear">Clear the chat now</button></div>`);
+    } else if (tab === "downloads") {
+      html += setSec("Starting", "",
+        `${box("auto_start", "Start new links by themselves when Linkarr is sure", "Sure means TMDB found the same name and year, there's only one title by that name, it has a library, and there's nothing to ask.")}
+        <div class="grid3">${field("max_parallel", "Downloads at once", "number", 'min="1" max="4"')}${field("night_start", "“Tonight” starts at", "time")}</div>`);
+      html += setSec("Archive passwords", "Tried in order on a locked zip or rar when the job has no password of its own. One per line. <code>{year}</code> becomes the title's year and <code>{title}</code> its name, so <code>{year}</code> on Dune (2021) tries 2021.",
+        `<label class="f"><span>Saved passwords</span><textarea data-pref="archive_passwords" rows="5" spellcheck="false" placeholder="{year}&#10;www.example.org&#10;{title}{year}">${esc((p.archive_passwords || []).join("\n"))}</textarea></label>
+        <div class="muted small">Stored on your server like the rest of the settings. The job page still takes a password for one download.</div>`);
+      html += setSec("After download", "",
+        `${box("unpack", "Unpack zip, rar and 7z files")}${box("clean_junk", "Delete junk", "Samples, .nfo, .txt, .url, screenshots and similar.")}${box("check_video", "Check that videos play before moving them")}
+        <div class="grid3">${field("recycle_days", "Keep replaced files for (days)", "number", 'min="1" max="90"')}</div>`);
+      html += setSec("Episodes and copies", "",
+        `${box("gap_check", "Missing episode check", "After a show is filed, say which episodes are missing between the ones you have.")}
+        ${box("dup_guard", "Duplicate guard", "Skip episodes and movies already in the library, even from a different link.")}
+        ${box("auto_upgrade", "Quality upgrade", "When a link is a higher resolution than the copy you have, swap it in without asking. The old copy goes to the recycle folder.")}`);
+      html += setSec("Captcha links", "Some links are protector pages that only show the MEGA link after a person solves a captcha. Linkarr never tries to get past one. It holds the link, sends it to you, and carries on once you paste back the MEGA link.",
+        `${box("captcha_enabled", "Hold captcha links for me")}${field("captcha_hosts", "Captcha sites, comma separated", "text", 'placeholder="links.example.org"')}
+        <div class="muted small">None are built in. Add the address of the protector page your site uses.</div>`);
+      html += setSec("Download window", "So big downloads don't slow the internet during the day.",
+        `${box("window_enabled", "Big downloads wait for the window", "A download that already started keeps going.")}
+        <div class="grid3">${field("window_start", "Opens", "time")}${field("window_end", "Closes", "time")}${field("window_min_gb", "Big means at least (GB, 0 = all)", "number", 'min="0" max="500"')}</div>`);
+      html += setSec("Monitored links", "For a MEGA folder link the uploader keeps adding to. Linkarr checks it and downloads only the new episodes.",
+        `${box("watch_enabled", "Monitor show links for new episodes")}
+        <div class="grid2"><label class="f"><span>Check each link</span>${sel("watch_every", [[6, "Every 6 hours"], [12, "Every 12 hours"], [24, "Once a day"], [48, "Every 2 days"]])}</label>
+        ${field("watch_stop_days", "Stop after this many quiet days (0 = never)", "number", 'min="0" max="365"')}</div>`);
+      html += setSec("Inbox folder", "Drop finished downloads from anywhere into this folder inside the media folder, and Linkarr names and files them like a link.",
+        `${box("inbox_enabled", "Watch the Inbox folder")}<div class="grid2">${field("inbox_dir", "Inbox folder")}${field("work_dir", "Work folder (downloads in progress)")}</div>
+        ${box("inbox_auto_start", "Start Inbox items without asking", "Only when Linkarr is sure. Otherwise it still asks.")}`);
+      html += setSec("Subtitles", "After filing, save a subtitle next to the video from OpenSubtitles.com, unless one is there. Free API key at opensubtitles.com, your profile, API consumers.",
+        `${box("subs_enabled", "Fetch subtitles after filing")}<div class="grid2">${field("subs_languages", "Languages, up to 3 (en, it)")}${field("opensubtitles_user", "OpenSubtitles username (optional)")}</div>
+        ${secret("opensubtitles_key", "API key")}${secret("opensubtitles_password", "OpenSubtitles password (optional)")}
+        <div class="row"><button class="btn sm" data-action="subs-test">Test</button></div>`, isSet("opensubtitles_key"));
     } else if (tab === "naming") {
-      html += `<div class="card stack"><p class="muted small">Use {title}, {year}, {show}, {season} and {episode}. Add :00 for two digits, like {season:00}.</p>
-        <div class="grid2">${field("movie_pattern", "Movie folder")}${field("show_pattern", "Show folder")}${field("season_pattern", "Season folder")}${field("episode_pattern", "Episode file")}</div>
+      html += setSec("Patterns", "Use {title}, {year}, {show}, {season} and {episode}. Add :00 for two digits, like {season:00}.",
+        `<div class="grid2">${field("movie_pattern", "Movie folder")}${field("show_pattern", "Show folder")}${field("season_pattern", "Season folder")}${field("episode_pattern", "Episode file")}</div>
         ${box("rename_episodes", "Rename episode files", "Off keeps the original file names inside the season folder.")}
-        <div class="muted small">Example: <span class="mono">Dune Part Two (2024)/Dune Part Two (2024).mkv</span> and <span class="mono">Severance (2022)/Season 2/Severance - S02E01.mkv</span></div>${save}</div>`;
+        <div class="muted small">Example: <span class="mono">Dune Part Two (2024)/Dune Part Two (2024).mkv</span> and <span class="mono">Severance (2022)/Season 2/Severance - S02E01.mkv</span></div>`);
       const rem = await api("GET", "/api/remembered-shows").catch(() => []);
-      html += `<div class="card stack" style="margin-top:12px"><h2>Remembered shows</h2>
-        <p class="muted small">Set with Match to show or Fix show. New links named like this go to that show by themselves.</p>
-        ${rem.length ? `<div class="list">${rem.map((r) => `<div class="li"><div class="grow"><div><b>${esc(r.folder || r.title)}</b></div>
-          <div class="muted small">${esc(r.label)}</div><div class="muted small">${esc(r.library)}</div></div>
-          <button class="btn sm ghost" data-action="forget-show" data-key="${esc(r.key)}">Forget</button></div>`).join("")}</div>` : `<div class="muted small">None yet.</div>`}</div>`;
-    } else if (tab === "behaviour") {
-      html += `<div class="card stack section"><h2>Starting</h2>${box("auto_start", "Start new links automatically when Linkarr is sure",
-        "Sure means TMDB found the same name and year, there's only one title by that name, it has a library, and there's nothing to ask. Remakes, same-name titles and close matches still wait for you.")}${save}</div>
-        <div class="card stack"><h2>After download</h2>${box("unpack", "Unpack zip, rar and 7z files")}${box("clean_junk", "Delete junk", "Samples, .nfo, .txt, .url, screenshots and similar.")}
-        ${box("check_video", "Check that videos play before moving them")}
-        <div class="grid3">${field("recycle_days", "Keep replaced files for (days)", "number", 'min="1" max="90"')}${field("max_parallel", "Downloads at once", "number", 'min="1" max="4"')}${field("night_start", '"Tonight" starts at', "time")}</div></div>
-        <div class="card stack" style="margin-top:12px"><h2>Inbox folder</h2><p class="muted small">Drop finished downloads (from anywhere) into this folder inside the media folder and Linkarr names and files them like a link.</p>
-        ${box("inbox_enabled", "Watch the Inbox folder")}${field("inbox_dir", "Inbox folder")}${box("inbox_auto_start", "Start Inbox items without asking", "Only when Linkarr is sure, as above. Otherwise it still asks.")}
-        ${field("work_dir", "Work folder (downloads in progress)")}${save}</div>`;
-    } else if (tab === "extras") {
-      const sel = (k, opts) => `<select data-pref="${k}">${opts.map(([v, t]) => `<option value="${v}"${String(p[k]) === String(v) ? " selected" : ""}>${t}</option>`).join("")}</select>`;
-      html += `<p class="muted small section">Captcha links are on from the start. Everything else here is off until you turn it on.</p>
-        <div class="card stack section"><h2>Captcha links</h2>
-          ${box("captcha_enabled", "Hold captcha links for me", "Some links (link-protector pages) only show the MEGA link after you solve a captcha. Linkarr doesn't try to get past it. It holds the job as Needs captcha, sends you the link on Telegram and shows it here. Solve it, then paste the MEGA link back: reply to the bot's message, or use the box on the job. One reminder if it's still waiting a day later.")}
-          ${field("captcha_hosts", "Captcha sites (comma separated)")}${save}</div>
-        <div class="card stack section"><h2>Monitored links</h2>
-          ${box("watch_enabled", "Monitor show links for new episodes", "For a MEGA folder link the uploader keeps adding to. Linkarr checks it on a schedule, downloads only the new files and files them in the right season. Press Monitor this link on the show's Details page, or send /monitor and the link to the bot.")}
-          <div class="grid2"><label class="f"><span>Check each link</span>${sel("watch_every", [[6, "Every 6 hours"], [12, "Every 12 hours"], [24, "Once a day"], [48, "Every 2 days"]])}</label>
-          ${field("watch_stop_days", "Stop after this many days with nothing new (0 = never)", "number", 'min="0" max="365"')}</div>
-          <div class="muted small">Once a day is safest. Checking often can hit MEGA's limits. If the link dies, monitoring stops and you're told.</div>${save}</div>
-        <div class="card stack section"><h2>Episodes and copies</h2>
-          ${box("gap_check", "Missing episode check", "After a show is filed, tell me about gaps between the episodes I have, like S02E03 missing between E02 and E04.")}
-          ${box("dup_guard", "Duplicate guard", "Skip episodes and movies already in the library, even from a different link. A link with nothing new isn't downloaded at all.")}
-          ${box("auto_upgrade", "Quality upgrade", "When a link has a higher resolution than the copy I have (1080p over 720p), swap it in without asking. The old copy goes to the recycle folder.")}${save}</div>
-        <div class="card stack section"><h2>Plex</h2>
-          ${box("plex_partial", "Scan only the folder that changed", "After a move Plex scans just that show or movie folder, so it shows up sooner. Falls back to the whole library if Linkarr can't work out Plex's folder.")}${save}</div>
-        <div class="card stack section"><h2>Download window</h2>
-          ${box("window_enabled", "Big downloads wait for the window", "So they don't slow the internet during the day. A download that already started keeps going.")}
-          <div class="grid3">${field("window_start", "Window opens", "time")}${field("window_end", "Window closes", "time")}${field("window_min_gb", "Big means at least (GB, 0 = all)", "number", 'min="0" max="500"')}</div>${save}</div>
-        <div class="card stack"><h2>Morning summary</h2>
-          ${box("morning_summary", "One Telegram message in the morning", "What came in overnight, one title per line, plus what's still downloading and what needs you. Nothing is sent after a quiet night.")}
-          <div class="grid3">${field("morning_time", "Send at", "time")}</div>
-          <div class="row"><button class="btn primary" data-action="save-prefs">Save</button><button class="btn ghost" data-action="morning">Send it now</button></div></div>`;
-    } else if (tab === "look") {
-      html += `<div class="themes">${THEMES.map(([k, t, c]) => `<button class="theme ${p.theme === k ? "on" : ""}" data-action="theme" data-theme="${k}"><div class="sw">${c.map((x) => `<i style="background:${x}"></i>`).join("")}</div><b>${t}</b></button>`).join("")}</div>`;
-    } else if (tab === "account") {
-      html += `<div class="card stack section"><h2>Password</h2><form class="stack" id="pw-form"><div class="grid2"><label class="f"><span>Current password</span><input type="password" name="current" autocomplete="current-password" required></label>
-        <label class="f"><span>New password</span><input type="password" name="password" minlength="10" autocomplete="new-password" required></label></div><div class="row"><button class="btn">Change password</button>
-        <div class="grow"></div><button type="button" class="btn ghost" data-action="logout">Sign out of Linkarr</button></div></form></div>
-        <div class="card stack"><h2>Backup</h2><p class="muted small">Settings, libraries, watched shows and history. Linkarr also keeps a daily copy of its database in the data folder.</p>
-        <div class="row"><a class="btn" href="/api/backup" download>Download backup</a><a class="btn ghost" href="/api/backup?secrets=1" download>Include keys and tokens</a></div>
-        <form class="row" id="restore-form"><input type="file" name="file" accept="application/json" required><button class="btn">Restore</button></form></div>`;
+      html += setSec("Remembered shows", "Set with Match to show or Fix show. New links named like this go to that show by themselves.",
+        rem.length ? `<div class="list">${rem.map((r) => `<div class="li"><div class="grow"><div><b>${esc(r.folder || r.title)}</b></div>
+          <div class="muted small">${esc(r.label)} · ${esc(r.library)}</div></div><button class="btn sm ghost" data-action="forget-show" data-key="${esc(r.key)}">Forget</button></div>`).join("")}</div>` : `<div class="muted small">None yet.</div>`);
+    } else if (tab === "system") {
+      html += setSec("Look", "", `<div class="themes">${THEMES.map(([k, t, c]) => `<button class="theme ${p.theme === k ? "on" : ""}" data-action="theme" data-theme="${k}"><span class="sw">${c.map((x) => `<i style="background:${x}"></i>`).join("")}</span>${t}</button>`).join("")}</div>`);
+      html += setSec("Password", "Forgot it? Run <code>docker exec linkarr python -m linkarr reset-password</code> on the server and make the account again.",
+        `<form class="stack" id="pw-form"><div class="grid2"><label class="f"><span>Current password</span><input type="password" name="current" autocomplete="current-password" required></label>
+        <label class="f"><span>New password, 10 or more characters</span><input type="password" name="password" minlength="10" autocomplete="new-password" required></label></div>
+        <div class="row"><button class="btn">Change password</button><div class="grow"></div><button type="button" class="btn ghost" data-action="logout">Sign out of Linkarr</button></div></form>`);
+      html += setSec("Backup", "Settings, libraries, tracked shows and history. Linkarr also keeps a daily copy of its database in the data folder.",
+        `<div class="row"><a class="btn" href="/api/backup" download>Download backup</a><a class="btn ghost" href="/api/backup?secrets=1" download>Include keys, tokens and saved passwords</a></div>
+        <form class="row" id="restore-form"><input type="file" name="file" accept="application/json" required style="flex:1 1 220px"><button class="btn">Restore</button></form>`);
+      html += setSec("Decoder", "Paste a Base64 code to see what's inside. Linkarr decodes it up to 4 times, stopping as soon as a MEGA link appears. The box at the top does this too.",
+        `<textarea id="dec-in" rows="4" placeholder="aHR0cHM6Ly9tZWdhLm56L..." spellcheck="false"></textarea>
+        <div class="row"><button class="btn sm" data-action="decode">Decode</button></div><div id="dec-out"></div>`);
+      html += setSec("Logs", "MEGA link keys and tokens are hidden, so it's safe to paste these when asking for help.",
+        `<div class="row"><button class="btn sm" data-action="reload-logs">Show the log</button><button class="btn sm ghost" data-action="copy-logs">Copy</button></div><div id="log-slot"></div>`);
+      bar = false;
     }
+    if (bar) html += saveBar();
     page().innerHTML = html;
     const mf = $("#mega-form");
     if (mf) mf.addEventListener("submit", async (e) => {
@@ -1177,7 +1358,7 @@
     const pf = $("#pw-form");
     if (pf) pf.addEventListener("submit", async (e) => {
       e.preventDefault();
-      try { await api("POST", "/api/auth/password", Object.fromEntries(new FormData(pf))); pf.reset(); toast("Password changed."); }
+      try { await api("POST", "/api/auth/password", Object.fromEntries(new FormData(pf))); pf.reset(); toast("Password changed. Sign in again on your other devices."); }
       catch (err) { toast(err.message); }
     });
     const rf = $("#restore-form");
@@ -1186,6 +1367,23 @@
       try { const r = await api("POST", "/api/restore", new FormData(rf), true); toast(`Restored. ${r.libraries_added} libraries added.`); }
       catch (err) { toast(err.message); }
     });
+  }
+
+  // Send to Linkarr: a bookmark that sends the links on the page you're on (and the text you selected,
+  // or the page's text) to Linkarr's picker. It runs on the forum page, opens Linkarr in a new tab, and adds
+  // nothing by itself. On Android the installed app is in the Share menu instead.
+  function sendToLinkarr(p) {
+    const hosts = (p.captcha_hosts || "").split(/[\s,]+/).filter(Boolean).map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const re = ["mega\\.nz", "mega\\.co\\.nz", ...hosts].join("|");
+    const code = "javascript:(function(){var r=/" + re.replace(/\//g, "\\/") + "/i,l=[].map.call(document.links,function(a){return a.href}).filter(function(h){return r.test(h)}).slice(0,30),"
+      + "t=String(getSelection())||document.body.innerText;window.open(" + JSON.stringify(location.origin + "/share?text=")
+      + "+encodeURIComponent((l.join('\\n')+'\\n'+t).slice(0,3000)),'_blank','noopener')})()";
+    state.bookmarklet = code;
+    return `<div class="row"><a class="bookmarklet" href="${esc(code)}" draggable="true">${ICON.link}Send to Linkarr</a>
+      <button class="btn sm ghost" data-action="copy-bookmarklet">Copy the code</button></div>
+      <ol class="cap-steps small"><li>Computer: drag the button to your bookmarks bar.</li><li>Like the post on the forum so the links show, select the post if you want, then click the bookmark.</li>
+      <li>Android: install Linkarr from the browser menu, then use Share, Linkarr on any page.</li><li>iPhone: add any bookmark, edit it, and paste the copied code as its address.</li></ol>
+      <div class="muted small">It only sends what's on the page to your own Linkarr. Linkarr never opens or signs in to the forum.</div>`;
   }
 
   function libRow(l, i, n) {
@@ -1201,6 +1399,15 @@
         <button class="btn sm ghost" data-action="move-lib" data-id="${id}" data-dir="1" ${i === n - 1 ? "disabled" : ""} aria-label="Down">↓</button>
         <button class="btn sm ghost danger" data-action="del-lib" data-id="${id}" aria-label="Remove">✕</button>`
         : `<button class="btn sm primary" data-action="save-lib" data-id="">Add</button>`}</div></div>`;
+  }
+
+  // Saves everything on the Settings page: the settings, and any key or token typed in. Empty key boxes leave the saved key alone.
+  async function saveAll() {
+    const prefs = readPrefs();
+    if (Object.keys(prefs).length) state.settings.prefs = await api("PUT", "/api/settings", prefs);
+    const secrets = {};
+    $$("[data-secret]").forEach((i) => { if (i.value.trim()) secrets[i.dataset.secret] = i.value.trim(); });
+    if (Object.keys(secrets).length) await api("PUT", "/api/secrets", secrets);
   }
 
   function readPrefs() {
@@ -1222,17 +1429,18 @@
     } catch (e) { page().innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
 
-  // Which Settings tab fixes a failed check.
-  const fixTab = (name) => (/^Librar/.test(name) ? "libraries" : /^MEGA/.test(name) ? "mega" : /TMDB|Plex|Telegram|Subtitles|OpenSubtitles/.test(name) ? "connections" : "");
+  // Which Settings page fixes a failed check.
+  const fixTab = (name) => (/^Librar/.test(name) ? "libraries" : /^MEGA|TMDB/.test(name) ? "accounts" : /Plex|Jellyfin|Emby/.test(name) ? "servers"
+    : /Telegram/.test(name) ? "telegram" : /Subtitles|OpenSubtitles/.test(name) ? "downloads" : "");
 
   async function renderLogs() {
-    title("Settings");
-    $("#top-extra").innerHTML = `<div class="row"><button class="btn sm" data-action="copy-logs">Copy</button><button class="btn sm" data-action="reload-logs">Refresh</button></div>`;
+    const slot = $("#log-slot");
+    if (!slot) return;
     try {
       const r = await api("GET", "/api/logs");
-      page().innerHTML = settingsTabs("logs") + `<p class="muted small">MEGA link keys and tokens are hidden, so it's safe to paste these when asking for help.</p><div class="logs" id="log-box">${esc(r.lines.join("\n")) || "Nothing logged yet."}</div>`;
+      slot.innerHTML = `<div class="logs" id="log-box" style="margin-top:10px">${esc(r.lines.join("\n")) || "Nothing logged yet."}</div>`;
       const b = $("#log-box"); b.scrollTop = b.scrollHeight;
-    } catch (e) { page().innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+    } catch (e) { slot.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   }
 
   // ---------- actions ----------
@@ -1254,6 +1462,11 @@
       case "tonight": await api("POST", `/api/jobs/${job}/start`, { when: "tonight" }); toast("It'll start tonight."); return after();
       case "cancel": if (!confirm("Cancel this download? Anything half-downloaded is deleted.")) return; await api("POST", `/api/jobs/${job}/cancel`); return after();
       case "delete-job": await api("DELETE", `/api/jobs/${job}`); location.hash = "#/"; return;
+      case "remove-job": await api("DELETE", `/api/jobs/${job}`); toast("Removed."); if (state.route === "") return refreshActivity(); location.hash = "#/"; return;
+      case "save-all": await saveAll(); toast("Saved."); return route();
+      case "clear-secret": if (!confirm("Remove this key? Linkarr stops using it.")) return; await api("PUT", "/api/secrets", { [d.name]: "" }); toast("Removed."); return route();
+      case "server-test": { await saveAll(); const r = await api("POST", `/api/mediaserver/${d.kind}/test`); toast(`Connected to ${r.name || d.kind}${r.version ? " " + r.version : ""}.`); return route(); }
+      case "copy-bookmarklet": try { await navigator.clipboard.writeText(state.bookmarklet); toast("Copied. Paste it as a bookmark's address."); } catch (e) { toast("Couldn't copy. Drag the button to your bookmarks instead."); } return;
       case "match": await api("POST", `/api/jobs/${job}/match`, { choice: d.choice }); return after();
       case "conflict": await api("PATCH", `/api/jobs/${job}`, { conflict_choice: d.choice }); if (d.choice === "skip") await api("POST", `/api/jobs/${job}/cancel`); return after();
       case "fix": { const r = await api("POST", `/api/links/${d.link}/retry`); toast(r && r.mode === "unpack" ? "Unpacking it again. No new download needed." : "Downloading it again from scratch."); return after(); }
@@ -1277,7 +1490,7 @@
       }
       case "show-details": state.openDetails.add(job); return after();
       case "hide-details": state.openDetails.delete(job); return after();
-      case "use-tmdb": await api("PATCH", `/api/jobs/${job}`, { tmdb_id: parseInt(d.id, 10), kind: d.kind }); toast("Updated."); return after();
+      case "use-tmdb": { const u = await api("PATCH", `/api/jobs/${job}`, { tmdb_id: parseInt(d.id, 10), kind: d.kind }); delete state.find[job]; toast(`Renamed to ${u.title}${u.year ? " (" + u.year + ")" : ""}.`); return after(); }
       case "save-files": {
         const sel = $$(`.files[data-link="${d.link}"] input:checked`).map((i) => i.value);
         await api("POST", `/api/links/${d.link}/files`, { selected: sel }); toast("Saved."); return;
@@ -1318,7 +1531,7 @@
       }
       case "watch-set": await api("POST", `/api/watches/${d.id}`, { active: d.on === "1" }); toast(d.on === "1" ? "Monitoring again." : "Stopped monitoring."); return renderWatched();
       case "watch-del": if (!confirm("Stop monitoring this link and remove it from the list? Nothing in your library changes.")) return; await api("DELETE", `/api/watches/${d.id}`); return renderWatched();
-      case "morning": { await api("PUT", "/api/settings", readPrefs()); const r = await api("POST", "/api/morning/send"); toast(r.sent ? "Sent the morning summary." : "Nothing came in since the last one, so nothing was sent."); return; }
+      case "morning": { await saveAll(); const r = await api("POST", "/api/morning/send"); toast(r.sent ? "Sent the morning summary." : "Nothing came in since the last one, so nothing was sent."); return; }
       case "track-all": el.disabled = true; await api("POST", "/api/shows/track-all"); return renderShows();
       case "unwatch": await api("POST", `/api/shows/${d.id}/watch`, { watching: false }); return renderShows();
       case "refile": return refileBox(el);
@@ -1340,7 +1553,7 @@
       }
       case "plex-found": await api("POST", `/api/jobs/${job}/plex`, { action: "found" }); toast("Marked as in Plex."); return after();
       case "recheck-ok": await api("PATCH", `/api/jobs/${job}`, { recheck: 0 }); toast("Filing it."); return after();
-      case "roundup": await api("PUT", "/api/settings", readPrefs()); await api("POST", "/api/roundup/send"); toast("Sent the roundup."); return;
+      case "roundup": await saveAll(); await api("POST", "/api/roundup/send"); toast("Sent the roundup."); return;
       case "quota": { const r = await api("POST", "/api/mega/quota"); toast(r.quota ? `${fmtBytes(Math.max(0, r.quota.max - r.quota.used))} of transfer left.` : "MEGA didn't say. Sign in first."); return route(); }
       case "undo": {
         if (!confirm("Undo this move? Files go back to the work folder and anything replaced comes back from the recycle folder.")) return;
@@ -1348,14 +1561,10 @@
         toast(r.problems.length ? `Undone, with ${r.problems.length} problem(s). See Logs.` : "Undone.");
         return renderHistory();
       }
-      case "save-prefs": state.settings.prefs = await api("PUT", "/api/settings", readPrefs()); toast("Saved."); return refreshActivity();
-      case "save-secret": {
-        const input = $("#sec-" + d.name);
-        await api("PUT", "/api/secrets", { [d.name]: input.value }); input.value = ""; toast("Saved."); return route();
-      }
-      case "tg-clear": { await api("PUT", "/api/settings", readPrefs()); const r = await api("POST", "/api/telegram/clear"); toast(r.deleted ? `Cleared ${r.deleted} message${r.deleted === 1 ? "" : "s"}.${r.kept ? ` Kept ${r.kept}.` : ""}` : r.kept ? `Nothing to clear. Kept ${r.kept}.` : "Nothing to clear."); return; }
-      case "tg-test": { await api("PUT", "/api/settings", readPrefs()); const r = await api("POST", "/api/telegram/test"); toast(r.sent ? `@${r.bot} sent you a message.` : `@${r.bot} works. Add your chat id to get messages.`); return; }
-      case "subs-test": await api("PUT", "/api/settings", readPrefs()); await api("POST", "/api/subs/test"); toast("OpenSubtitles works."); return;
+
+      case "tg-clear": { await saveAll(); const r = await api("POST", "/api/telegram/clear"); toast(r.deleted ? `Cleared ${r.deleted} message${r.deleted === 1 ? "" : "s"}.${r.kept ? ` Kept ${r.kept}.` : ""}` : r.kept ? `Nothing to clear. Kept ${r.kept}.` : "Nothing to clear."); return; }
+      case "tg-test": { await saveAll(); const r = await api("POST", "/api/telegram/test"); toast(r.sent ? `@${r.bot} sent you a message.` : `@${r.bot} works. Add your chat id to get messages.`); return; }
+      case "subs-test": await saveAll(); await api("POST", "/api/subs/test"); toast("OpenSubtitles works."); return;
       case "theme": await api("PUT", "/api/settings", { theme: d.theme }); setTheme(d.theme); return route();
       case "mega-logout": await api("POST", "/api/mega/logout"); toast("Signed out of MEGA."); return route();
       case "save-lib": {
@@ -1402,6 +1611,27 @@
     try { await act(el); }
     catch (err) { if (err.message !== "Signed out.") toast(err.message); }
     finally { el.disabled = false; }
+  });
+
+  document.addEventListener("submit", (e) => {
+    const f = e.target.closest && e.target.closest("[data-find-form]");
+    if (!f) return;
+    e.preventDefault();
+    const q = $("input", f).value.trim();
+    if (q) findTitle(parseInt(f.dataset.findForm, 10), q);
+  });
+  // Settings: say so once something on the page has changed.
+  const markDirty = (e) => {
+    const sb = $("#savebar");
+    if (!sb || !e.target.matches || !e.target.matches("[data-pref], [data-secret]")) return;
+    sb.classList.add("dirty");
+    $("#save-note").textContent = "Unsaved changes.";
+  };
+  document.addEventListener("input", markDirty);
+  document.addEventListener("change", markDirty);
+  // The phone's Settings page picker.
+  document.addEventListener("change", (e) => {
+    if (e.target.matches && e.target.matches("[data-tab-select]")) location.hash = "#/settings?tab=" + e.target.value;
   });
 
   // The MEGA link box on a captcha card.

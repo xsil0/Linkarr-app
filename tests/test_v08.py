@@ -93,7 +93,7 @@ def test_switch_off_and_wrong_box(ctx, libs):
         jobs.hold_captcha(ctx, CAP)
         raise AssertionError("held while off")
     except jobs.JobError as e:
-        assert "Settings → Extras" in str(e)
+        assert "Settings → Downloads" in str(e)
 
 
 class Notes:
@@ -151,7 +151,7 @@ def test_telegram_says_when_captcha_links_are_off(ctx):
     prefs.set_many(ctx.db, {"captcha_enabled": False})
     run(tg.on_message({"chat": {"id": 42}, "text": CAP}))
     assert sent.calls[-1][1]["text"].splitlines() == ["🔒 That's a captcha link.", "Captcha links are off.",
-                                                      "Turn them on in Linkarr → Settings → Extras."]
+                                                      "Turn them on in Linkarr → Settings → Downloads."]
 
 
 # ---- API --------------------------------------------------------------------------------------------

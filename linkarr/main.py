@@ -938,9 +938,12 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     async def backup(request: Request, secrets: int = 0):
         ctx = ctx_of(request)
         db = ctx.db
+        kept = prefs.all_prefs(db)
+        if not secrets:
+            kept.pop("archive_passwords", None)  # only in the backup that also holds the keys
         data = {
             "linkarr": __version__, "made": now(),
-            "prefs": prefs.all_prefs(db),
+            "prefs": kept,
             "libraries": jobs.libraries(db),
             "shows": [dict(r) for r in db.query("SELECT * FROM shows")],
             "movies": [dict(r) for r in db.query("SELECT * FROM movies")],
@@ -1004,7 +1007,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         # shows what it found and waits for you to pick: opening this address never adds anything.
         from urllib.parse import quote
         shared = "\n".join(x for x in (title, text, url) if x and x.strip())
-        return RedirectResponse("/?share=" + quote(shared[:6000]), status_code=303)
+        return RedirectResponse("/?share=" + quote(shared[:4000]), status_code=303)
 
     app.mount("/static", StaticFiles(directory=WEB), name="static")
 

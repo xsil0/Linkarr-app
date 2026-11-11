@@ -138,7 +138,7 @@ class Worker:
             if link["id"] in self.downloads or room <= 0:
                 continue
             if jobs.window_wait(self.db, max(0, link["size"] - link["bytes_done"])):
-                continue  # big download, outside the download window (Settings → Extras)
+                continue  # big download, outside the download window (Settings → Downloads)
             room -= 1
             self.downloads[link["id"]] = asyncio.create_task(self.download(dict(link)))
 
@@ -285,7 +285,8 @@ class Worker:
             "novideo": "No video in this download",
         }
         add_alert(self.db, kind if kind in titles else "error", titles.get(kind, "A download failed"),
-                  f"{link['name']}: {message}", link["job_id"], link["id"])
+                  message if link["name"] and link["name"] in message else f"{link['name']}: {message}",
+                  link["job_id"], link["id"])
 
     # ---- after download: unpack, clean, check --------------------------------------------------
 
@@ -606,7 +607,7 @@ class Worker:
         return len(due)
 
     async def morning_summary(self, force: bool = False) -> str:
-        """Once a day at the time in Settings → Extras: what came in since the last one (or the last 24 hours)."""
+        """Once a day at the time in Settings → Downloads: what came in since the last one (or the last 24 hours)."""
         today = time.strftime("%Y-%m-%d")
         if not force:
             if not prefs.get(self.db, "morning_summary") or self.db.get_setting("last_morning") == today:
@@ -781,9 +782,10 @@ class Worker:
             if quiet:
                 events = []
             miss = json.dumps(tracker.missing(det, have, today)) if have is not None else ""
-            self.db.run("UPDATE shows SET status=?, next_air=?, last_air=?, seasons=?, notified=?, missing=?, checked_at=? WHERE tmdb_id=?",
+            self.db.run("UPDATE shows SET status=?, next_air=?, last_air=?, seasons=?, notified=?, missing=?, poster=?, checked_at=? "
+                        "WHERE tmdb_id=?",
                         (det.get("status", ""), det.get("next_air", ""), det.get("last_air", ""), len(det.get("seasons", [])),
-                         json.dumps(notified), miss, now(), show["tmdb_id"]))
+                         json.dumps(notified), miss, det.get("poster", "") or "", now(), show["tmdb_id"]))
             for text in events:
                 log.info("Show update: %s", text)
                 if self.ctx.notify and prefs.get(self.db, "notify_series"):

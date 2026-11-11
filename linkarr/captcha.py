@@ -8,7 +8,7 @@ Only the matching lives here, so decode, prefs and jobs can all use it without i
 """
 import re
 
-DEFAULT_HOSTS = ""             # none built in: add the sites you use in Settings → Extras
+DEFAULT_HOSTS = ""             # none built in: add the sites you use in Settings → Downloads
 REMIND_AFTER = 24 * 3600       # one reminder when a link has been waiting this long
 
 

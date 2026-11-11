@@ -57,7 +57,7 @@ class Notifier:
         await self.telegram.broadcast(f"⚠️ <b>{html.escape(title)}</b>\n{html.escape(body)}", rows, job_id)
 
     async def refresh_plex(self, lib: dict, target: str) -> bool:
-        """After a move: scan the Plex library, or with Settings → Extras → Plex refresh, only the folder that changed."""
+        """After a move: scan the Plex library, or with Settings → Media servers, only the folder that changed."""
         section = (lib or {}).get("plex_section", "")
         if not section:
             return False

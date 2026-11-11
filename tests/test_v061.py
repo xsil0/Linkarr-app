@@ -16,7 +16,7 @@ def bot(ctx):
 def test_site_command_sends_the_link_from_settings(ctx):
     tg, sent = bot(ctx)
     run(tg.on_message({"chat": {"id": 42}, "text": "/site"}))
-    assert sent.calls[-1][1]["text"] == "No download site set yet.\nAdd it in Settings → Connections."
+    assert sent.calls[-1][1]["text"] == "No download site set yet.\nAdd it in Settings → Accounts."
     assert "reply_markup" not in sent.calls[-1][1]
 
     prefs.set_many(ctx.db, {"site_name": "My Site & Co", "site_url": "example.org/forum"})

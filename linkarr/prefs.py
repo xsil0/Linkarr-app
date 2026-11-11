@@ -43,7 +43,7 @@ DEFAULTS = {
     "site_badge": "",                # up to 3 letters shown as its icon; blank uses the name's capitals
     "notify_movies": True,           # Movie Tracker news: out on Blu-ray, digital, streaming
     "release_country": "US",         # whose release dates and streaming services the Movie Tracker uses
-    # Extras (0.7.0). Every one is off until you turn it on in Settings → Extras.
+    # Extras (0.7.0). Every one is off until you turn it on in Settings → Downloads.
     "watch_enabled": False,          # folder watch: check watched MEGA folder links for new episodes
     "watch_every": 24,               # hours between checks of each watched folder
     "watch_stop_days": 30,           # stop watching after this many days with nothing new (0 = never)
@@ -168,7 +168,7 @@ def set_many(db: Database, values: dict) -> dict:
 
 
 def captcha_hosts(db: Database) -> list[str]:
-    """The captcha hosts to look for (Settings → Extras). Spotted even with the switch off, so Linkarr can say why it
+    """The captcha hosts to look for (Settings → Downloads). Spotted even with the switch off, so Linkarr can say why it
     isn't holding one."""
     return captcha.parse_hosts(get(db, "captcha_hosts")) or captcha.parse_hosts(captcha.DEFAULT_HOSTS)
 

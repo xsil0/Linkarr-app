@@ -20,8 +20,6 @@
   either links you downloaded before or titles (and seasons) already in a library folder, and says so.
   Tick one to get it again.
 - Posters on TMDB search results in Library.
-- MEGA storage (used of total) shows under the transfer allowance in the menu, and in
-  **Check the allowance now**.
 
 ### Changed
 
@@ -36,8 +34,13 @@
   instead of TMDB's "Returning Series").
 - Alert titles say what went wrong ("This video won't play", not "A download got stuck").
 - The menu no longer says "MEGA not signed in" under the MEGA allowance meters.
-- Long show descriptions in search results wrap to two lines, so **Track this** and **Use this** stay
-  in view.
+
+## 1.0.2
+
+- MEGA storage (used of total) shows under the transfer allowance in the menu, and in
+  **Check the allowance now**.
+- Long show descriptions in search results wrap to two lines instead of running off the screen, so
+  **Track this** and **Use this** stay in view.
 
 ## 1.0.1
 

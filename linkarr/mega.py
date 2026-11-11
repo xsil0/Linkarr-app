@@ -191,12 +191,12 @@ class PublicApi:
         return res
 
     async def transfer_quota(self, sid: str) -> dict | None:
-        """{"used", "max"} in bytes for a signed-in account, or None when MEGA doesn't say. sid is MEGAcmd's
+        """{"used", "max"} (transfer allowance, plus "storage_used", "storage_max" when MEGA sends them) in bytes for a signed-in account, or None when MEGA doesn't say. sid is MEGAcmd's
         session; it's only sent to MEGA, never logged or stored."""
         res, why = None, ""
         for cand in session_ids(sid):
             try:
-                res = await self._call({"a": "uq", "xfer": 1, "pro": 1}, {"sid": cand})
+                res = await self._call({"a": "uq", "xfer": 1, "pro": 1, "strg": 1}, {"sid": cand})
                 break
             except MegaError as e:
                 why = str(e)
@@ -205,7 +205,10 @@ class PublicApi:
         if not isinstance(res, dict) or not res.get("mxfer"):
             return None
         used = int(res.get("caxfer") or 0) + int(res.get("csxfer") or 0)
-        return {"used": used, "max": int(res["mxfer"])}
+        out = {"used": used, "max": int(res["mxfer"])}
+        if res.get("mstrg"):   # cloud storage: used and total
+            out.update(storage_used=int(res.get("cstrg") or 0), storage_max=int(res["mstrg"]))
+        return out
 
     async def preview(self, url: str) -> Preview:
         link = parse_link(url)

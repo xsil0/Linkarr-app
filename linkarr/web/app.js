@@ -386,7 +386,7 @@
         ${r.more ? `<div class="muted small" style="padding:10px 0">${r.more} more links weren't read. Add them in a second go.</div>` : ""}</div>
       <div class="foot"><label class="f"><span>Archive password${r.password ? " (found in the post)" : ", if the files are locked"}</span>
         <input type="text" id="pick-pass" value="${esc(r.password || "")}" autocomplete="off" spellcheck="false" placeholder="Leave empty to try your saved passwords"></label>
-        <div class="row"><button class="btn primary" data-pick="some">Add</button><button class="btn" data-pick="all">Add all</button><div class="grow"></div><button class="btn ghost" data-pick="no">Cancel</button></div></div>`;
+        <div class="row"><button class="btn primary" data-pick="some">Add</button><button class="btn" data-pick="all">${nHave ? "Add all new" : "Add all"}</button><div class="grow"></div><button class="btn ghost" data-pick="no">Cancel</button></div></div>`;
     document.body.appendChild(d);
     const boxes = () => $$("input[type=checkbox]", d);
     const count = () => {
@@ -406,7 +406,8 @@
       if (!b) { if (e.target === d) close(); return; }
       if (b.dataset.pick === "no") return close();
       const all = b.dataset.pick === "all";
-      const picked = boxes().filter((x) => !x.disabled && (all || x.checked));
+      // Add all never re-downloads what you have, unless you ticked it yourself.
+      const picked = boxes().filter((x) => !x.disabled && (x.checked || (all && !(x.dataset.i != null && links[+x.dataset.i].have))));
       const items = picked.filter((x) => x.dataset.i != null).map((x) => links[+x.dataset.i]);
       const cs = picked.filter((x) => x.dataset.cap != null).map((x) => caps[+x.dataset.cap]);
       const pw = $("#pick-pass", d).value.trim();

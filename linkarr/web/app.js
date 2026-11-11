@@ -127,7 +127,7 @@
   const LINK_ALERTS = ["integrity", "dead", "error", "unpack", "novideo"];
 
   // ---------- state ----------
-  const state = { auth: null, overview: null, settings: null, route: "", timer: null, matchInfo: {}, history: [], openDetails: new Set(), openRecent: new Set(), trackerTab: "series", find: {} };
+  const state = { auth: null, overview: null, settings: null, route: "", timer: null, matchInfo: {}, history: [], openDetails: new Set(), openRecent: new Set(), trackerTab: "series", find: {}, trackFind: {}, imp: null };
 
   function setTheme(t) {
     document.documentElement.dataset.theme = t || "dark";
@@ -1140,9 +1140,36 @@
       return `<div class="card section stack"><div class="small">Matching your shows on TMDB… ${imp.done} of ${imp.total || "?"}</div><div class="bar"><i style="width:${pct}%"></i></div></div>`;
     }
     const miss = imp.unmatched || [];
-    return `<div class="card section stack"><div class="small"><b>Added ${imp.added} series.</b> ${miss.length ? `${miss.length} folder${miss.length === 1 ? "" : "s"} didn't match for sure. Look each one up in Library and turn it on there.` : "Every folder matched."}</div>
-      ${miss.length ? `<div class="list">${miss.map((m) => `<div class="li"><div class="grow ellipsis">${esc(m.folder)} <span class="muted small">${esc(m.library)}</span></div><a class="btn sm" href="#/library?q=${encodeURIComponent(m.folder.replace(/\s*[\[(].*$/, ""))}">Find</a></div>`).join("")}</div>` : ""}</div>`;
+    state.imp = imp;
+    return `<div class="card section stack"><div class="small"><b>Added ${imp.added} series.</b> ${miss.length ? `${miss.length} folder${miss.length === 1 ? "" : "s"} didn't match for sure. Press Find, then Track this on the right show.` : "Every folder matched."}</div>
+      ${miss.length ? `<div class="list">${miss.map((m, i) => unmatchedRow(m, i)).join("")}</div>` : ""}</div>`;
   }
+
+  // A show folder Track all couldn't match: search TMDB for it and track the right one by hand.
+  function unmatchedRow(m, i) {
+    const key = m.library_id + "|" + m.folder, f = state.trackFind[key];
+    const hits = f ? (f.html || "") : "";
+    return `<div class="li" style="flex-wrap:wrap"><div class="grow ellipsis">${esc(m.folder)} <span class="muted small">${esc(m.library)}</span></div>
+      ${f ? "" : `<button class="btn sm" data-action="track-find" data-i="${i}">Find</button>`}
+      ${f ? `<div style="flex:1 1 100%"><form class="row" data-track-find="${i}"><input type="search" value="${esc(f.q)}" style="flex:1 1 200px;width:auto" autocomplete="off" aria-label="Show to search for"><button class="btn sm">Search</button></form>
+        <div class="find">${hits}</div></div>` : ""}</div>`;
+  }
+  async function trackFind(i, q) {
+    const m = (state.imp.unmatched || [])[i];
+    if (!m) return;
+    const key = m.library_id + "|" + m.folder;
+    state.trackFind[key] = { q, html: `<div class="muted small">Searching…</div>` };
+    redrawTrackAll();
+    try {
+      const hits = await api("GET", "/api/tmdb/search?kind=series&q=" + encodeURIComponent(q));
+      state.trackFind[key].html = hits.length ? hits.slice(0, 5).map((h) => `<div class="hit">${posterEl(h.poster, h.title, "xs")}<div class="grow"><b>${esc(h.title)}</b> ${h.year ? `<span class="yr">${h.year}</span>` : ""}
+          <div class="muted tiny ellipsis">${esc(h.overview || "")}</div></div>
+          <button class="btn sm primary" data-action="track-pick" data-i="${i}" data-id="${h.id}" data-name="${esc(h.title)}">Track this</button></div>`).join("")
+        : `<div class="muted small">Nothing found. Try fewer words.</div>`;
+    } catch (e) { state.trackFind[key].html = `<div class="err">${esc(e.message)}</div>`; }
+    redrawTrackAll();
+  }
+  const redrawTrackAll = () => { const box = $("#track-all"); if (box && state.imp) morph(box, trackAllBox(state.imp)); };
 
   async function pollTrackAll() {
     if (!onTracker()) return;
@@ -1532,6 +1559,14 @@
       case "watch-set": await api("POST", `/api/watches/${d.id}`, { active: d.on === "1" }); toast(d.on === "1" ? "Monitoring again." : "Stopped monitoring."); return renderWatched();
       case "watch-del": if (!confirm("Stop monitoring this link and remove it from the list? Nothing in your library changes.")) return; await api("DELETE", `/api/watches/${d.id}`); return renderWatched();
       case "morning": { await saveAll(); const r = await api("POST", "/api/morning/send"); toast(r.sent ? "Sent the morning summary." : "Nothing came in since the last one, so nothing was sent."); return; }
+      case "track-find": { const m = state.imp.unmatched[+d.i]; return trackFind(+d.i, m.query || m.folder); }
+      case "track-pick": {
+        const m = state.imp.unmatched[+d.i];
+        await api("POST", `/api/shows/${d.id}/watch`, { watching: true, name: d.name, folder: m.folder, library_id: m.library_id });
+        toast(`Tracking ${d.name}.`);
+        delete state.trackFind[m.library_id + "|" + m.folder];
+        return renderShows();
+      }
       case "track-all": el.disabled = true; await api("POST", "/api/shows/track-all"); return renderShows();
       case "unwatch": await api("POST", `/api/shows/${d.id}/watch`, { watching: false }); return renderShows();
       case "refile": return refileBox(el);
@@ -1554,7 +1589,7 @@
       case "plex-found": await api("POST", `/api/jobs/${job}/plex`, { action: "found" }); toast("Marked as in Plex."); return after();
       case "recheck-ok": await api("PATCH", `/api/jobs/${job}`, { recheck: 0 }); toast("Filing it."); return after();
       case "roundup": await saveAll(); await api("POST", "/api/roundup/send"); toast("Sent the roundup."); return;
-      case "quota": { const r = await api("POST", "/api/mega/quota"); toast(r.quota ? `${fmtBytes(Math.max(0, r.quota.max - r.quota.used))} of transfer left.` : "MEGA didn't say. Sign in first."); return route(); }
+      case "quota": { const r = await api("POST", "/api/mega/quota"); toast(`${fmtBytes(Math.max(0, r.quota.max - r.quota.used))} of transfer left.`); return route(); }
       case "undo": {
         if (!confirm("Undo this move? Files go back to the work folder and anything replaced comes back from the recycle folder.")) return;
         const r = await api("POST", `/api/history/${d.id}/undo`);
@@ -1614,6 +1649,8 @@
   });
 
   document.addEventListener("submit", (e) => {
+    const t = e.target.closest && e.target.closest("[data-track-find]");
+    if (t) { e.preventDefault(); const q = $("input", t).value.trim(); if (q) trackFind(parseInt(t.dataset.trackFind, 10), q); return; }
     const f = e.target.closest && e.target.closest("[data-find-form]");
     if (!f) return;
     e.preventDefault();

@@ -5,7 +5,7 @@ import shutil
 from collections import namedtuple
 
 from conftest import KEY, run
-from linkarr import jobs
+from linkarr import jobs, post
 from linkarr.worker import Worker
 from test_v1 import H, client, sign_up  # noqa: F401  (client is a fixture)
 
@@ -210,3 +210,17 @@ def test_picker_skips_what_you_have_and_what_you_downloaded(ctx, libs):
     (ctx.cfg.media_dir / "TV Shows" / "Severance (2022)" / "Season 2").mkdir()
     r = run(post.scan(ctx, f"{D}", []))
     assert "this season" in r["links"][0]["have"] and not r["links"][0]["selected"]
+
+
+def test_a_long_post_reads_every_link_and_every_code(ctx):
+    # A thread with 120 links, most of them as Base64 codes, with forum chatter around each one.
+    import base64
+    urls = [f"https://mega.nz/folder/Mc{i:06d}#{KEY}" for i in range(120)]
+    lines = []
+    for i, u in enumerate(urls):
+        ctx.mega.add(u, f"MasterClass.Lesson.{i:03d}", [("lesson.mp4", 10)])
+        shown = u if i % 4 == 0 else base64.b64encode(u.encode()).decode()
+        lines.append(f"Lesson {i}: some chatter about this one, thanks to the uploader " * 3 + "\n" + shown)
+    r = run(post.scan(ctx, "\n\n".join(lines), []))
+    assert len(r["links"]) == 120 and r["more"] == 0
+    assert {i["url"] for i in r["links"]} == set(urls)

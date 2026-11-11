@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- **Long posts lost most of their links.** Only the first 20 Base64 codes in a pasted post were decoded,
+  and at most 40 links were read, so a thread with 100+ links came back with about 30. Now every code is
+  decoded and up to 250 links are read from one paste (up to 400,000 characters, enough for a whole
+  forum page).
+
 ## 1.1.0
 
 ### New

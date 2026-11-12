@@ -5,13 +5,15 @@
 
 ![Linkarr's Activity page](docs/screenshots/activity.png)
 
-Paste a MEGA link, or a whole forum post. Linkarr downloads it with **your own** MEGA account,
+Paste a MEGA link or a Base64 code. Linkarr downloads it with **your own** MEGA account,
 names it the way Plex expects, and files it in the right library. One Docker container, runs on
 your own server.
 
 ## What it does
 
-- **Reads a whole post.** Lists every link, skips what you already have, and you pick the rest.
+- **Paste a link or a code.** Base64 codes are decoded again and again until a MEGA or captcha link comes out.
+- **Several links at once.** You pick what to add, and what you already have is left unticked.
+- **Send to Linkarr bookmark.** Picks up the MEGA links on the page you're looking at. Linkarr itself never visits any site.
 - **Names and files it.** `Movie (Year)/Movie (Year).mkv`, `Show (Year)/Season 2/Show - S02E01.mkv`.
 - **Unpacks and cleans up.** zip, rar and 7z, passwords too. Samples and junk go.
 - **Never overwrites.** Replaced files sit in a recycle folder for 7 days. Every move can be undone.
@@ -41,7 +43,7 @@ services:
     ports:
       - "9040:9040"
     environment:
-      - TZ=Europe/Rome          # your time zone
+      - TZ=Europe/London        # your time zone
       - PUID=1000               # user and group that own your media folders
       - PGID=1000
     volumes:
@@ -61,7 +63,7 @@ Open `http://<server>:9040`, enter the setup code and make your account. Then in
 3. **Media servers** and **Telegram:** optional.
 4. **Setup check:** shows anything still missing.
 
-Unraid? See the [Unraid guide](docs/unraid.md). Keep Linkarr off the open internet: it holds your
+Step by step with pictures: the [setup guide (PDF)](docs/Linkarr-setup-guide.pdf). On Unraid, see the [Unraid notes](docs/unraid.md). Keep Linkarr off the open internet: it holds your
 MEGA session. See [SECURITY.md](SECURITY.md). All container variables and settings are in
 [docs/features.md](docs/features.md#settings-reference).
 

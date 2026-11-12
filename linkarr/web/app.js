@@ -222,7 +222,7 @@
         <div class="side-foot" id="side-foot"></div>
       </aside>
       <main class="main"><div class="top"><img class="top-mark" src="/static/mark.svg" alt=""><h1 id="page-title"></h1><div class="grow"></div><div id="top-extra"></div></div>
-        <form class="paste" id="paste"><label for="paste-input">link &gt;</label><input type="text" id="paste-input" placeholder="Paste a MEGA link, a code, or a whole post" autocomplete="off" spellcheck="false"><button class="btn primary">Add</button></form>
+        <form class="paste" id="paste"><label for="paste-input">link &gt;</label><input type="text" id="paste-input" placeholder="Paste a MEGA link or a Base64 code" autocomplete="off" spellcheck="false"><button class="btn primary">Add</button></form>
         <div id="page"></div></main>
       <nav class="tabbar" id="tabbar" aria-label="Pages"></nav></div>`;
     $("#paste").addEventListener("submit", (e) => { e.preventDefault(); addLinks($("#paste-input").value); });
@@ -312,7 +312,7 @@
       let d = { layers: [] };
       try { d = await api("POST", "/api/decode", { text }); } catch (e) { /* the plain message below is enough */ }
       toast(d.layers && d.layers.length ? `Decoded ${d.layers.length} time${d.layers.length > 1 ? "s" : ""} but found no MEGA link. Settings → System → Decoder shows what's inside.`
-        : "No MEGA link in that. Paste the link, a Base64 code, or the whole post.");
+        : "No MEGA link in that. Paste a MEGA link or a Base64 code.");
       return;
     }
     const ask = opts && opts.ask;
@@ -1416,7 +1416,7 @@
         `<div class="grid3">${field("site_name", "Name", "text", 'placeholder="My site" maxlength="40"')}${field("site_url", "Address", "url", 'placeholder="https://…"')}${field("site_badge", "Icon letters", "text", 'placeholder="MS" maxlength="3"')}</div>
         <div class="muted small">Leave the icon letters empty to use the capitals in the name.</div>
         ${siteLogoRow()}`);
-      html += setSec("Send to Linkarr", "Send a whole post from the forum page in one tap. Linkarr shows the links it found and you pick which to add.", sendToLinkarr(p));
+      html += setSec("Send to Linkarr", "Press it on a page with MEGA links to send them here in one tap. Linkarr shows the links it found and you pick which to add.", sendToLinkarr(p));
     } else if (tab === "servers") {
       html += setSec("Plex", "Plex scans the right library when something lands, and Linkarr checks it showed up.",
         `${field("plex_url", "Plex address", "url", 'placeholder="http://192.168.0.2:32400"')}${secret("plex_token", "Plex token")}

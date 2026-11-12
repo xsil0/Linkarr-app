@@ -14,11 +14,11 @@ from pathlib import Path
 
 import httpx
 
-from . import files, jobs, movietracker, prefs, roundup, tracker, watch
+from . import files, jobs, movietracker, naming, prefs, roundup, tracker, watch
 from .db import now
 from .jobs import Ctx, add_alert, resolve_alerts
 from .mega import MegaError
-from .parse import is_sub, is_video
+from .parse import is_sub, is_video, parse_name
 
 log = logging.getLogger("linkarr.worker")
 RETRY_GENERIC = 3       # silent retries for a generic failure before asking you
@@ -90,6 +90,7 @@ class Worker:
             await self.chat_clear()
             await self.morning_summary()
             await self.captcha_reminders()
+            await self.fill_folder_posters()
         if t - self.last_plex > 6 * 3600:
             self.last_plex = t
             await self.refresh_plex_index()
@@ -853,6 +854,54 @@ class Worker:
             await asyncio.sleep(0.05)
         if n:
             log.info("Found posters for %d tracked shows", n)
+        return n
+
+    def _posterless_folders(self) -> list[tuple[dict, str]]:
+        """Library folders with no poster yet: not a tracked show with one, and not looked up in the last month."""
+        have = {(r["library_id"], r["folder"]) for r in self.db.query("SELECT library_id, folder FROM shows WHERE poster != ''")}
+        month = now() - 30 * 86400
+        have |= {(r["library_id"], r["folder"]) for r in self.db.query(
+            "SELECT library_id, folder FROM folder_posters WHERE poster != '' OR tried_at > ?", (month,))}
+        out = []
+        for lib in jobs.libraries(self.db):
+            try:
+                base = jobs.lib_dir(self.ctx.cfg, lib)
+            except jobs.JobError:
+                continue
+            out += [(lib, f) for f in files.list_folders(base) if (lib["id"], f) not in have]
+        return out
+
+    async def fill_folder_posters(self, limit: int = 40) -> int:
+        """Posters for the Library list: every folder (movies, untracked shows) gets its TMDB poster, a few
+        dozen a minute, so a big library is done in about an hour. Only a confident name match is used."""
+        if not self.ctx.tmdb.configured():
+            return 0
+        todo = (await asyncio.to_thread(self._posterless_folders))[:limit]
+        n = 0
+        for lib, folder in todo:
+            info = parse_name(folder)
+            title = info["title"] or naming.norm_title(folder)
+            kind = "series" if lib["kind"] == "series" else "movie"
+            poster, tmdb_id = "", None
+            try:
+                hits = await self.ctx.tmdb.search(title, kind, info["year"] or naming.year_of(folder))
+            except Exception as e:  # one bad lookup shouldn't stop the others
+                log.info("Poster for %s: %s", folder, e)
+                continue
+            best = 0.0
+            for h in hits[:8]:
+                s = naming.score(h["title"], folder, h["year"])
+                if s > best and h["poster"]:
+                    best, poster, tmdb_id = s, h["poster"], h["id"]
+            if best < 0.86:
+                poster, tmdb_id = "", None
+            self.db.run("INSERT INTO folder_posters (library_id, folder, tmdb_id, poster, tried_at) VALUES (?, ?, ?, ?, ?) "
+                        "ON CONFLICT(library_id, folder) DO UPDATE SET tmdb_id=excluded.tmdb_id, poster=excluded.poster, "
+                        "tried_at=excluded.tried_at", (lib["id"], folder, tmdb_id, poster, now()))
+            n += bool(poster)
+            await asyncio.sleep(0.1)
+        if n:
+            log.info("Found posters for %d library folders", n)
         return n
 
     async def check_movies(self) -> None:

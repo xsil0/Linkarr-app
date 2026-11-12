@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.2
+
+### Fixed
+
+- **Posters for movies in Library.** Every library folder now gets its TMDB poster, not just tracked
+  shows: a few dozen a minute in the background, so a big library is done in about an hour. Only a
+  confident name match is used; anything else keeps its title card.
+
+### Changed
+
+- **MEGA meters** in the sidebar read "MEGA Storage, 207GB of 750GB used" and "MEGA Transfers, 2TB of
+  12TB used", on lines that never wrap, and both bars fill up as you use them.
+- **README** is short, with screenshots. The full feature list moved to `docs/features.md`.
+
 ## 1.1.1
 
 ### Fixed

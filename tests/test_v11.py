@@ -224,3 +224,22 @@ def test_a_long_post_reads_every_link_and_every_code(ctx):
     r = run(post.scan(ctx, "\n\n".join(lines), []))
     assert len(r["links"]) == 120 and r["more"] == 0
     assert {i["url"] for i in r["links"]} == set(urls)
+
+
+def test_movies_in_the_library_get_posters(client):
+    c = client
+    sign_up(c)
+    ctx = c.app.state.ctx
+    ctx.vault.set("tmdb_key", "test-key")
+    jobs.save_library(ctx, {"name": "Movies", "kind": "movie", "path": "Movies"})
+    base = ctx.cfg.media_dir / "Movies"
+    for f in ("Dune Part Two (2024)", "Free Solo 2018", "Nothing Like This (1999)"):
+        (base / f).mkdir(parents=True)
+    w = Worker(ctx)
+    assert run(w.fill_folder_posters()) == 2
+    rows = {r["folder"]: r for r in c.get("/api/library/folders", headers=H).json()}
+    assert rows["Dune Part Two (2024)"]["poster"] == "/dune.jpg"
+    assert rows["Free Solo 2018"]["poster"] == "/solo.jpg"
+    assert rows["Nothing Like This (1999)"]["poster"] == ""
+    assert run(w.fill_folder_posters()) == 0  # nothing asked again, including the one TMDB didn't know
+    assert ctx.db.one("SELECT COUNT(*) n FROM folder_posters")["n"] == 3

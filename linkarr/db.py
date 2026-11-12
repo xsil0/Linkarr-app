@@ -144,6 +144,17 @@ CREATE TABLE IF NOT EXISTS shows (
   checked_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- Posters for library folders that aren't tracked (movies, mostly), looked up on TMDB a few at a time.
+-- tried_at stops a folder TMDB had nothing for from being asked about again for a month.
+CREATE TABLE IF NOT EXISTS folder_posters (
+  library_id INTEGER NOT NULL,
+  folder TEXT NOT NULL,
+  tmdb_id INTEGER,
+  poster TEXT NOT NULL DEFAULT '',
+  tried_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (library_id, folder)
+);
+
 -- Movie Tracker: movies you're waiting for, checked once a day for Blu-ray, digital and streaming dates.
 CREATE TABLE IF NOT EXISTS movies (
   tmdb_id INTEGER PRIMARY KEY,

@@ -487,6 +487,8 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     def _library_rows(ctx) -> list[dict]:
         shows = {(r["library_id"], r["folder"]): r for r in ctx.db.query(
             "SELECT tmdb_id, name, folder, library_id, watching, poster, missing, status FROM shows")}
+        found = {(r["library_id"], r["folder"]): r for r in ctx.db.query(
+            "SELECT library_id, folder, tmdb_id, poster FROM folder_posters WHERE poster != ''")}
         out = []
         for lib in jobs.libraries(ctx.db):
             base = jobs.lib_dir(cfg, lib)
@@ -503,6 +505,10 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
                         miss = json.loads(s["missing"] or "null")
                         row.update({"tracked": bool(s["watching"]), "tmdb_id": s["tmdb_id"], "poster": s["poster"] or "",
                                     "title": s["name"], "status": s["status"] or "", "missing": tracker.describe(miss) if miss else ""})
+                if not row["poster"] and (lib["id"], f) in found:
+                    fp = found[(lib["id"], f)]
+                    row["poster"] = fp["poster"]
+                    row["tmdb_id"] = row["tmdb_id"] or fp["tmdb_id"]
                 out.append(row)
         return out
 

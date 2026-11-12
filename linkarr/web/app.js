@@ -270,18 +270,23 @@
     $$("[data-issues]").forEach((c) => c.classList.toggle("hidden", !ov.setup_issues));
   }
 
+  // Short sizes for the sidebar meters, so a line never wraps: 207GB, 1.4TB, 12TB.
+  const shortBytes = (n) => {
+    n = n || 0;
+    if (n >= 1024 ** 4) return (n / 1024 ** 4).toFixed(1).replace(/\.0$/, "") + "TB";
+    if (n >= 1024 ** 3) return Math.round(n / 1024 ** 3) + "GB";
+    return Math.max(0, Math.round(n / 1024 ** 2)) + "MB";
+  };
+
+  // MEGA storage and transfers in the sidebar: what's used, and a bar that fills up as it's used.
   function quotaMeter(q) {
     if (!q || !q.max) return "";
-    const left = Math.max(0, q.max - q.used);
-    const pct = Math.min(100, Math.round((100 * q.used) / q.max));
-    const meter = (label, title, text, lowPct, fill) => `<div class="quota" title="${title}"><div class="label">${label}</div>
-      <div class="n">${text}</div><div class="bar mono${lowPct >= 90 ? " low" : ""}"><i style="width:${fill}%"></i></div></div>`;
-    let html = meter("MEGA transfer", `MEGA transfer allowance: ${fmtBytes(q.used)} used of ${fmtBytes(q.max)}`, `${fmtBytes(left)} left of ${fmtBytes(q.max)}`, pct, 100 - pct);
-    if (q.storage_max) {
-      const sp = Math.min(100, Math.round((100 * q.storage_used) / q.storage_max));
-      html += meter("MEGA storage", `MEGA cloud storage: ${fmtBytes(q.storage_used)} used of ${fmtBytes(q.storage_max)}`, `${fmtBytes(q.storage_used)} used of ${fmtBytes(q.storage_max)}`, sp, sp);
-    }
-    return html;
+    const meter = (label, used, max) => {
+      const pct = Math.min(100, Math.round((100 * used) / max));
+      return `<div class="quota"><div class="q-name">${label}</div>
+        <div class="n">${shortBytes(used)} of ${shortBytes(max)} used</div><div class="bar mono${pct >= 90 ? " low" : ""}"><i style="width:${pct}%"></i></div></div>`;
+    };
+    return (q.storage_max ? meter("MEGA Storage", q.storage_used, q.storage_max) : "") + meter("MEGA Transfers", q.used, q.max);
   }
 
   // Everything waiting on you: alerts, failed jobs (with no alert saying so already) and held captcha links.
@@ -1396,7 +1401,7 @@
       const q2 = s.quota;
       html += setSec("MEGA", "Downloads use your account, so your transfer allowance applies. Your password goes straight to MEGA's own tool and isn't saved by Linkarr.",
         s.mega.email ? `<div class="spread"><div><div class="label ok">Signed in</div><div>${esc(s.mega.email)}</div></div><button class="btn sm" data-action="mega-logout">Sign out</button></div>
-          ${q2 && q2.max ? `<div class="quota big"><div class="spread small"><span>Transfer allowance</span><span class="num">${fmtBytes(Math.max(0, q2.max - q2.used))} left of ${fmtBytes(q2.max)}</span></div>
+          ${q2 && q2.max ? `<div class="quota big"><div class="spread small"><span>Transfers</span><span class="num">${fmtBytes(q2.used)} of ${fmtBytes(q2.max)} used</span></div>
             <div class="bar${q2.used / q2.max >= 0.9 ? " low" : ""}"><i style="width:${Math.min(100, Math.round((100 * q2.used) / q2.max))}%"></i></div></div>` : ""}
           ${box("quota_guard", "Hold a download that would go over what's left", "It waits and starts by itself once there's room again, instead of stopping halfway.")}
           <div class="row"><button class="btn sm" data-action="quota">Check the allowance now</button></div>`

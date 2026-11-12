@@ -1,7 +1,11 @@
 # Linkarr
 
 <!-- INTRODUCTION: replace this paragraph with your own words. -->
-*Your introduction goes here.*
+Before you ask: yes, this was vibe coded with Claude. I’m not a developer by trade. I built it to scratch my own itch, and now I use it every day.
+
+Linkarr started as a fix for my own niche problem: getting MEGA links into Plex without the busywork. It turned out more useful than I expected, so I’m sharing it in case it helps you too.
+
+If it’s useful to you, great. If not, no hard feelings
 
 ![Linkarr's Activity page](docs/screenshots/activity.png)
 

@@ -35,7 +35,7 @@ instant rename, not a copy. Library folders are set in the app, not here.
 **Apply.** The log (Docker tab → Linkarr icon → **Logs**) shows:
 
 ```
-No account yet. Open Linkarr and use this setup code: 8aa77c4b
+No account yet. Open Linkarr and use this setup code: 3f9c1e7a
 ```
 
 ## 2. HTTPS

@@ -28,16 +28,18 @@ handles links **you** already have, from a file host. Think of it as the import-
 
 - **Paste, share or message a link.** From the web app, the Android Share menu, the Send to Linkarr
   bookmark, or a Telegram bot. Its "/" menu lists the commands; `/help` does too.
-- **Paste the whole post.** Paste a forum post as it is (or send it with Send to Linkarr) and Linkarr
-  lists every MEGA link in it, what each one is, and its size. Nothing is added until you pick.
+- **Several links at once.** Paste several links (or send a page's links with Send to Linkarr) and
+  Linkarr lists every MEGA link, what each one is, and its size. Nothing is added until you pick.
   When the same title comes in several qualities only the best is ticked; every season is ticked.
   **Add 3** takes what's ticked, **Add all** takes everything. Seasons of one show become one job, and
-  captcha links in the post are held (see below). A password in the post ("Password: abc") is filled in.
+  captcha links are held (see below). A password next to the links ("Password: abc") is filled in.
+- **Base64 codes.** Paste a code and Linkarr decodes it, up to 4 layers deep, until a MEGA link or a
+  captcha link comes out.
 - **Send to Linkarr.** Settings → Accounts has a bookmark button. On a computer, drag it to the
   bookmarks bar; on an iPhone, paste the copied code as a bookmark's address; on Android, install
-  Linkarr from the browser menu and use Share. Open the post (like it first if the forum hides links
-  until you do), select it if you like, and press the bookmark: it sends the links and text on that
-  page to your own Linkarr, which opens the picker. It never signs in to or opens the forum itself.
+  Linkarr from the browser menu and use Share. Open the page with the links, select part of it if you like, and press the bookmark: it sends the
+  MEGA links on that page to your own Linkarr, which opens the picker. Linkarr itself never visits or
+  signs in to any site.
 - **Saved archive passwords.** Settings → Downloads → Archive passwords: one per line, tried in order
   on locked archives when the job has none. `{year}`, `{title}`, `{Title}` and `{title_nospace}` are
   filled in from the job, so `{year}` tries `2024` for a 2024 movie. A line with `{year}` is skipped

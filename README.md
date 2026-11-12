@@ -33,8 +33,12 @@ your own server.
 | Pick what to add | Coming up |
 |---|---|
 | ![Link picker](docs/screenshots/picker.png) | ![Tracker](docs/screenshots/tracker.png) |
-| **Do I have it?** | **On your phone** |
-| ![Library](docs/screenshots/library.png) | ![Phone](docs/screenshots/phone-tracker.png) |
+
+<p align="center">
+  <img src="docs/screenshots/phone-activity.png" alt="Activity on a phone" width="300">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/phone-library.png" alt="Library on a phone" width="300">
+</p>
 
 ## Quick start
 

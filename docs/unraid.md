@@ -38,6 +38,8 @@ instant rename, not a copy. Library folders are set in the app, not here.
 No account yet. Open Linkarr and use this setup code: 3f9c1e7a
 ```
 
+That code is only an example. Every install makes its own.
+
 ## 2. HTTPS
 
 The sign-in cookie only works over HTTPS. With Tailscale on the server:

@@ -75,6 +75,21 @@ Step by step with pictures: the [setup guide (PDF)](docs/Linkarr-setup-guide.pdf
 MEGA session. See [SECURITY.md](SECURITY.md). All container variables and settings are in
 [docs/features.md](docs/features.md#settings-reference).
 
+### Folder names with capitals or spaces
+
+Capital letters in folder paths are fine: `/mnt/user/Media:/media` works as it is, and so do library
+folders like `Movies` or `TV Shows`. Nothing needs renaming. If Docker says something must be
+lowercase, it is talking about a name, not a folder:
+
+- **Image:** `ghcr.io/xsil0/linkarr-app` is all lowercase, even though the GitHub repo is `Linkarr-app`.
+- **Project or stack name:** `docker compose -p`, `COMPOSE_PROJECT_NAME` and Portainer or Dockge
+  stack names must be lowercase. Use `linkarr`.
+- **A space in the path:** in `docker run`, quote it: `-v "/mnt/user/My Media:/media"`. Without quotes,
+  Docker reads `Media:/media` as the image name. In a compose file the line works with or without quotes.
+- **No leading `/` or `./`:** `- Media:/media` is read as a Docker volume called `Media`, not your
+  folder. Write the full path, `/mnt/user/Media:/media`, or `./Media:/media` for a folder next to the
+  compose file.
+
 ## Captcha links are held, never bypassed
 
 Linkarr never solves or gets around captchas or link protectors. It holds the link, you solve it

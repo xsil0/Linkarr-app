@@ -392,7 +392,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   .grid2, .grid3, .compare { grid-template-columns: minmax(0, 1fr); }
   .lib-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .lib-row.head { display: none; }
-  .tabs { display: none; }
+  .tabs.has-select { display: none; }
   .tab-select { display: block; }
   .hero .in { flex-direction: column; align-items: flex-start; padding: 16px; gap: 14px; }
   .hero .poster.lg { width: 84px; font-size: 28px; }

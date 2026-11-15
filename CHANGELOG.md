@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.4
+
+### Fixed
+
+- **Tracker tabs on phones.** On a narrow screen the Series, Movies and Monitored links tabs were
+  hidden (the rule meant to swap the Settings tabs for a dropdown hid every tab bar), so a phone could
+  only reach Series. Tracker now keeps its tab bar on phones; Settings still uses its dropdown.
+
 ## 1.1.3
 
 ### Fixed

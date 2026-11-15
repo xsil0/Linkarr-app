@@ -1110,8 +1110,8 @@
   const onTracker = () => ["tracker", "shows"].includes(state.route);
   // Monitored links is always a tab; when folder watch is off (Settings → Downloads) its page says so and offers Turn on.
   const watchOn = () => !!(state.overview && state.overview.extras && state.overview.extras.watch);
-  const trackerTabs = (tab) => `<div class="tabs">${[["series", "Series"], ["movies", "Movies"], ["monitored", "Monitored links"]].map(([k, t]) =>
-    `<a href="#/tracker?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</div>`;
+  const trackerTabs = (tab) => `<nav class="tabs" aria-label="Tracker">${[["series", "Series"], ["movies", "Movies"], ["monitored", "Monitored links"]].map(([k, t]) =>
+    `<a href="#/tracker?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</nav>`;
 
   async function renderTracker(q) {
     const tab = (q && q.get("tab")) || state.trackerTab;
@@ -1345,7 +1345,7 @@
     ["downloads", "Downloads"], ["naming", "Naming"], ["system", "System"]];
   const OLD_TABS = { mega: "accounts", connections: "accounts", behaviour: "downloads", extras: "downloads", look: "system", tools: "system", logs: "system", account: "system" };
   const THEMES = [["dark", "Dark", ["#0d0d0c", "#f2a93b"]], ["light", "Light", ["#f1f0eb", "#b23a0a"]], ["auto", "Match device", ["#0d0d0c", "#f1f0eb"]]];
-  const settingsTabs = (tab) => `<nav class="tabs" aria-label="Settings">${TABS.map(([k, t]) => `<a href="#/settings?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</nav>
+  const settingsTabs = (tab) => `<nav class="tabs has-select" aria-label="Settings">${TABS.map(([k, t]) => `<a href="#/settings?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</nav>
     <select class="tab-select" aria-label="Settings page" data-tab-select>${TABS.map(([k, t]) => `<option value="${k}"${k === tab ? " selected" : ""}>${t}</option>`).join("")}</select>`;
   const setSec = (title, about, fields, tag) => `<section class="set"><div class="about"><h2>${title}</h2>${about ? `<p>${about}</p>` : ""}${tag || ""}</div><div class="fields">${fields}</div></section>`;
   const saveBar = () => `<div class="savebar" id="savebar"><button class="btn primary" data-action="save-all">Save changes</button><span class="note" id="save-note">Nothing changed yet.</span></div>`;

@@ -81,7 +81,7 @@ Capital letters in folder paths are fine: `/mnt/user/Media:/media` works as it i
 folders like `Movies` or `TV Shows`. Nothing needs renaming. If Docker says something must be
 lowercase, it is talking about a name, not a folder:
 
-- **Image:** `ghcr.io/xsil0/linkarr-app` is all lowercase, even though the GitHub repo is `Linkarr`.
+- **Image:** `ghcr.io/xsil0/linkarr-app` is all lowercase, even though the GitHub repo is `Linkarr-app`.
 - **Project or stack name:** `docker compose -p`, `COMPOSE_PROJECT_NAME` and Portainer or Dockge
   stack names must be lowercase. Use `linkarr`.
 - **A space in the path:** in `docker run`, quote it: `-v "/mnt/user/My Media:/media"`. Without quotes,

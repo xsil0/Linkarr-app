@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.3
+
+### Fixed
+
+- **Monitored links tab.** Tracker always shows the Monitored links tab. It used to appear only once
+  folder watch was on, and after turning it on in Settings the app kept its old copy of that switch,
+  so the tab (and the Monitor this link button on a show's Details page) stayed hidden until a full
+  page reload. Saving Settings now refreshes it, and with folder watch off the tab says so and has a
+  Turn on button.
+
 ## 1.1.2
 
 ### Fixed

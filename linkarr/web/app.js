@@ -1108,9 +1108,9 @@
 
   // ---------- tracker: series and movies ----------
   const onTracker = () => ["tracker", "shows"].includes(state.route);
-  // The Watched tab is there once folder watch is on (Settings → Downloads).
+  // Monitored links is always a tab; when folder watch is off (Settings → Downloads) its page says so and offers Turn on.
   const watchOn = () => !!(state.overview && state.overview.extras && state.overview.extras.watch);
-  const trackerTabs = (tab) => `<div class="tabs">${[["series", "Series"], ["movies", "Movies"]].concat(watchOn() || tab === "monitored" ? [["monitored", "Monitored links"]] : []).map(([k, t]) =>
+  const trackerTabs = (tab) => `<div class="tabs">${[["series", "Series"], ["movies", "Movies"], ["monitored", "Monitored links"]].map(([k, t]) =>
     `<a href="#/tracker?tab=${k}" class="${k === tab ? "on" : ""}">${t}</a>`).join("")}</div>`;
 
   async function renderTracker(q) {
@@ -1562,6 +1562,8 @@
     const secrets = {};
     $$("[data-secret]").forEach((i) => { if (i.value.trim()) secrets[i.dataset.secret] = i.value.trim(); });
     if (Object.keys(secrets).length) await api("PUT", "/api/secrets", secrets);
+    // Other pages read switches like folder watch from the overview, so fetch it again rather than keep the old copy.
+    try { state.overview = await api("GET", "/api/overview"); sideInfo(state.overview); } catch (e) { /* refreshed on the next page */ }
   }
 
   function readPrefs() {

@@ -35,6 +35,7 @@ from .worker import Worker
 log = logging.getLogger("linkarr")
 WEB = Path(__file__).parent / "web"
 PUBLIC_API = {"/api/health", "/api/auth/state", "/api/auth/login", "/api/auth/setup"}
+GATEWAY_API = "/api/gateway/message"   # the Cerberus gateway calls this with its webhook secret, not a session
 
 
 def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client: httpx.AsyncClient | None = None,
@@ -99,6 +100,8 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     @app.middleware("http")
     async def guard(request: Request, call_next):
         path = request.url.path
+        if path == GATEWAY_API:
+            return await call_next(request)
         if path.startswith("/api/") and path not in PUBLIC_API:
             user = auth.session_user(request.app.state.ctx.db, request.cookies.get(auth.COOKIE))
             if user is None:
@@ -938,6 +941,24 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
             return await server.info()
         except (httpx.HTTPError, ValueError) as e:
             raise HTTPException(400, mediaserver.explain(e, server.label))
+
+    @app.post(GATEWAY_API)
+    async def gateway_message(request: Request):
+        """A message typed in the Linkarr channel of the Cerberus app. Answered there, in the background."""
+        ctx = ctx_of(request)
+        secret = ctx.vault.get("gateway_secret")
+        given = request.headers.get("x-cerberus-secret", "")
+        if not secret or not request.app.state.tg.gateway_on() or not hmac.compare_digest(given.encode(), secret.encode()):
+            return JSONResponse({"detail": "Not allowed."}, status_code=403)
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "Send JSON.")
+        task = asyncio.create_task(request.app.state.tg.on_gateway(body if isinstance(body, dict) else {}))
+        request.app.state.gateway_tasks = getattr(request.app.state, "gateway_tasks", set())
+        request.app.state.gateway_tasks.add(task)
+        task.add_done_callback(request.app.state.gateway_tasks.discard)
+        return {"ok": True}
 
     @app.post("/api/telegram/clear")
     async def telegram_clear(request: Request):

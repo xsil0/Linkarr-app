@@ -28,7 +28,8 @@ DEFAULTS = {
     # Passwords tried on locked archives when the job has none of its own. One per entry. {year} and
     # {title} are swapped for the job's year and title before trying.
     "archive_passwords": [],
-    "telegram_chats": [],             # chat ids allowed to use the bot and get messages
+    "telegram_chats": [],
+    "gateway_url": "",                # a Cerberus gateway: messages go there too (gateway_token in the vault)             # chat ids allowed to use the bot and get messages
     "notify_done": True,
     "notify_series": True,
     "subs_enabled": False,           # subtitles from OpenSubtitles.com after filing
@@ -77,7 +78,7 @@ KINDS = {
     "movie_pattern": str, "show_pattern": str, "season_pattern": str, "episode_pattern": str,
     "rename_episodes": bool, "unpack": bool, "clean_junk": bool, "check_video": bool,
     "recycle_days": int, "work_dir": str, "inbox_enabled": bool, "inbox_dir": str, "inbox_auto_start": bool, "auto_start": bool,
-    "max_parallel": int, "night_start": str, "plex_url": str, "jellyfin_url": str, "emby_url": str, "archive_passwords": list, "telegram_chats": list,
+    "max_parallel": int, "night_start": str, "plex_url": str, "jellyfin_url": str, "emby_url": str, "archive_passwords": list, "telegram_chats": list, "gateway_url": str,
     "notify_done": bool, "notify_series": bool, "subs_enabled": bool, "subs_languages": str, "opensubtitles_user": str,
     "roundup_enabled": bool, "roundup_day": str, "quota_guard": bool, "theme": str,
     "site_name": str, "site_url": str, "site_badge": str, "notify_movies": bool, "release_country": str,
@@ -141,6 +142,10 @@ def set_many(db: Database, values: dict) -> dict:
             v = "sun"
         if k == "theme" and v not in THEMES:
             v = "dark"
+        if k == "gateway_url":
+            v = v.rstrip("/")
+            if v and not v.lower().startswith(("http://", "https://")):
+                v = "http://" + v
         if k == "site_url" and v and not v.lower().startswith(("http://", "https://")):
             v = "https://" + v
         if k in ("plex_url", "jellyfin_url", "emby_url") and v:

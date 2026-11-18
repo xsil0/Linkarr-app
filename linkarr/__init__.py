@@ -1,2 +1,2 @@
 """Linkarr: paste a download link, get a correctly named folder in your media library."""
-__version__ = "1.1.4"
+__version__ = "1.2.0"

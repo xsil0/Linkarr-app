@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- **Cerberus.** Linkarr can talk through a Cerberus gateway as well as Telegram.
+  - Set it up in Settings → Telegram → Cerberus: the gateway address, its bot token and a webhook secret.
+  - Everything the bot sends also goes to the gateway's Linkarr channel: job cards, questions, captcha links and the news.
+  - Messages typed in that channel are answered there, the same way the bot answers them: paste a link, /status, /missing and so on.
+  - Buttons work too. A tap comes back as the button's label and acts on the card it was on.
+  - The gateway calls `/api/gateway/message` with the webhook secret. Without that secret, the endpoint refuses every call.
+  - It works without a Telegram bot.
+
 ## 1.1.4
 
 ### Fixed

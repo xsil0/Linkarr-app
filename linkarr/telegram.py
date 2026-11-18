@@ -5,12 +5,17 @@ can use it; anyone else who writes /start is told their chat id and nothing more
 
 Captcha links (captcha.py) come back as a message with the link; you reply to it with the MEGA link.
 
+With a Cerberus gateway set up (Settings → Telegram → Cerberus), the gateway counts as one more chat, "cerberus":
+everything the bot sends goes there too, as a message in the Linkarr channel, and what you type in that channel comes in
+through /api/gateway/message and is answered there. Buttons work: a tap comes back as the button's label.
+
 Every message in the bot's chats is noted (tg_messages) so the nightly clear can delete it. Telegram only lets a
 bot delete messages under 48 hours old, so that's how far back the clear reaches.
 """
 import asyncio
 import html
 import json
+import re
 import logging
 import secrets
 import time
@@ -22,6 +27,7 @@ from .mega import find_links, is_folder
 
 log = logging.getLogger("linkarr.telegram")
 API = "https://api.telegram.org/bot{token}/{method}"
+GATEWAY = "cerberus"   # the chat id the Cerberus gateway gets in Linkarr
 
 # The bot's command menu (the "/" button in Telegram), also what /help lists.
 COMMANDS = [
@@ -50,12 +56,17 @@ class Telegram:
         return self.ctx.vault.get("telegram_token")
 
     def chats(self) -> list[str]:
-        return [str(c) for c in prefs.get(self.ctx.db, "telegram_chats")]
+        return [str(c) for c in prefs.get(self.ctx.db, "telegram_chats")] + ([GATEWAY] if self.gateway_on() else [])
 
     def configured(self) -> bool:
-        return bool(self.token())
+        return bool(self.token()) or self.gateway_on()
+
+    def gateway_on(self) -> bool:
+        return bool(prefs.get(self.ctx.db, "gateway_url") and self.ctx.vault.get("gateway_token"))
 
     async def api(self, method: str, **payload):
+        if str(payload.get("chat_id", "")) == GATEWAY or str(payload.get("callback_query_id", "")).startswith(GATEWAY):
+            return await self.gateway_api(method, payload)
         token = self.token()
         if not token:
             return None
@@ -285,7 +296,7 @@ class Telegram:
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
-            if not self.configured():
+            if not self.token():
                 await _sleep(stop, 30)
                 continue
             await self.set_menu()
@@ -540,8 +551,105 @@ class Telegram:
         if msg.get("message_id"):
             await self.edit(chat, msg["message_id"], note)
 
+    # ---- Cerberus gateway ----------------------------------------------------------------------
+
+    async def gateway_api(self, method: str, payload: dict):
+        """A Telegram call for the "cerberus" chat, as a message in the gateway's Linkarr channel. Sent messages get
+        their own number, so a later edit of that message changes it in place there."""
+        if method == "sendMessage":
+            n = int(self.ctx.db.get_setting("gateway_seq", 0) or 0) + 1
+            self.ctx.db.set_setting("gateway_seq", n)
+        elif method == "editMessageText":
+            n = int(payload.get("message_id") or 0)
+        else:
+            return True                      # tap answers, deletes, reactions: nothing to show
+        if not n:
+            return None
+        text, actions, taps = gateway_message(payload.get("text", ""), (payload.get("reply_markup") or {}).get("inline_keyboard") or [])
+        key = f"lx-{n}"
+        self.ctx.db.set_setting("gateway_btn." + key, taps)
+        self.ctx.db.set_setting("gateway_text." + key, gateway_plain(text.replace("**", "")))
+        old = n - 60                         # keep the buttons of the last 60 messages
+        if old > 0:
+            self.ctx.db.run("DELETE FROM settings WHERE key IN (?, ?)", (f"gateway_btn.lx-{old}", f"gateway_text.lx-{old}"))
+        body = {"channel": "linkarr", "author": "Linkarr", "key": key, "text": text or "…", "actions": actions}
+        if self._reply_to and method == "sendMessage":
+            body["replyTo"], self._reply_to = self._reply_to, ""
+        try:
+            r = await self.client.post(prefs.get(self.ctx.db, "gateway_url") + "/api/ingest", json=body,
+                                       headers={"Authorization": "Bearer " + self.ctx.vault.get("gateway_token")})
+            if r.status_code >= 300:
+                log.warning("Cerberus answered %s", r.status_code)
+                return None
+        except httpx.HTTPError as e:
+            log.warning("Cerberus failed: %s", e.__class__.__name__)
+            return None
+        return {"message_id": n, "chat": {"id": GATEWAY}}
+
+    _reply_to = ""
+
+    async def on_gateway(self, body: dict) -> None:
+        """A message typed in Cerberus's Linkarr channel: a button tap (its label, and the message it was on), or text."""
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return
+        try:
+            await self._on_gateway(text, body)
+        except Exception:
+            log.exception("Cerberus message failed")
+        self._reply_to = ""
+
+    async def _on_gateway(self, text: str, body: dict) -> None:
+        self._reply_to = str(body.get("messageId") or "")
+        key = str((body.get("about") or {}).get("key") or "")
+        taps = (self.ctx.db.get_setting("gateway_btn." + key, {}) or {}) if key.startswith("lx-") else {}
+        if text not in taps:                 # an older app sends only the label: take the newest message with that button
+            rows = self.ctx.db.query("SELECT key, value FROM settings WHERE key LIKE 'gateway_btn.lx-%'")
+            for row in sorted(rows, key=lambda r: -int(r["key"].rsplit("-", 1)[1])):
+                found = json.loads(row["value"] or "{}")
+                if text in found:
+                    key, taps = row["key"].split(".", 1)[1], found
+                    break
+        chat = {"id": GATEWAY}
+        if text in taps:
+            await self.on_button({"id": f"{GATEWAY}:{key}", "data": taps[text],
+                                  "message": {"message_id": int(key[3:]), "chat": chat, "text": self.ctx.db.get_setting("gateway_text." + key, "")}})
+        else:
+            await self.on_message({"message_id": 0, "chat": chat, "text": text})
+
     async def close(self):
         await self.client.aclose()
+
+
+def gateway_plain(text: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", text or ""))
+
+
+def gateway_message(text: str, rows: list) -> tuple[str, list, dict]:
+    """Telegram HTML and buttons as Cerberus text and actions: bold stays bold (**), links and link buttons become
+    Open buttons, other buttons become reply buttons (label → callback data, kept for the tap). Cerberus shows 4,
+    so the last rows' buttons go first."""
+    actions, taps, links = [], {}, []
+    def link(m):
+        links.append((m.group(1), gateway_plain(m.group(2)).strip()))
+        return m.group(2)
+    text = re.sub(r'<a href="([^"]+)">(.*?)</a>', link, text or "", flags=re.S)
+    text = re.sub(r"<b>(.*?)</b>", lambda m: f"**{m.group(1)}**" if m.group(1).strip() else "", text, flags=re.S)
+    text = gateway_plain(text).strip()
+    for row in reversed(rows):              # the last rows hold the main choices (Start, Replace…); library picks come first in Telegram
+        for b in row:
+            label = str(b.get("text", ""))[:40]
+            if not label or len(actions) >= 4:
+                continue
+            if b.get("url"):
+                actions.append({"label": label, "url": b["url"]})
+            elif b.get("callback_data"):
+                actions.append({"label": label, "reply": label})
+                taps[label] = b["callback_data"]
+    for url, label in links:
+        if len(actions) < 4 and url.startswith(("http://", "https://")) and not any(a.get("url") == url for a in actions):
+            actions.append({"label": ("🔗 " + (label or "Open"))[:40], "url": url})
+    return text[:4000], actions, taps
 
 
 async def _sleep(stop: asyncio.Event, seconds: float) -> None:

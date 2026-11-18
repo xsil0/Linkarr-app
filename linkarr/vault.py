@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from .db import Database
 
 # Everything stored through this module. The API only ever says whether each one is set.
-NAMES = ("tmdb_key", "plex_token", "jellyfin_key", "emby_key", "telegram_token", "opensubtitles_key", "opensubtitles_password")
+NAMES = ("tmdb_key", "plex_token", "jellyfin_key", "emby_key", "telegram_token", "gateway_token", "gateway_secret", "opensubtitles_key", "opensubtitles_password")
 
 
 class Vault:

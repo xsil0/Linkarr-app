@@ -1431,6 +1431,8 @@
       html += setSec("Bot", "Send links to your bot, answer questions with buttons, get told when things land. Make a bot with @BotFather, paste its token, then send /start to it to see your chat id.",
         `${secret("telegram_token", "Bot token")}${field("telegram_chats", "Allowed chat ids, comma separated")}
         <div class="row"><button class="btn sm" data-action="tg-test">Send a test message</button></div>`, isSet("telegram_token"));
+      html += setSec("Cerberus", `Everything the bot sends also goes to the Linkarr channel of a Cerberus gateway, and messages typed there are answered there, buttons included. In Cerberus, set the Linkarr channel's webhook to <code>${esc(location.origin)}/api/gateway/message</code> with the same webhook secret.`,
+        `${field("gateway_url", "Gateway address", "url", 'placeholder="http://192.168.0.2:9065"')}${secret("gateway_token", "Bot token (from the gateway)")}${secret("gateway_secret", "Webhook secret")}`, isSet("gateway_token"));
       html += setSec("Messages", "",
         `${box("notify_done", "Tell me when something lands")}${box("notify_series", "Show news", "New season dates, finales, ended or canceled.")}
         ${box("notify_movies", "Movie Tracker news", "Blu-ray, digital and streaming dates.")}

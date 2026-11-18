@@ -65,7 +65,7 @@ def test_secrets_never_come_back_out(client):
     client.put("/api/secrets", json={"telegram_token": token, "plex_token": "plexsecret"}, headers=H)
     s = client.get("/api/settings").json()
     assert s["secrets"] == {"tmdb_key": False, "plex_token": True, "jellyfin_key": False, "emby_key": False,
-                            "telegram_token": True, "opensubtitles_key": False, "opensubtitles_password": False}
+                            "telegram_token": True, "gateway_token": False, "gateway_secret": False, "opensubtitles_key": False, "opensubtitles_password": False}
     assert token not in str(s) and "plexsecret" not in str(s)
     assert token not in client.get("/api/backup").text
     assert token in client.get("/api/backup?secrets=1").text

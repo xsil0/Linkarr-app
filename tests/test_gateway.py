@@ -1,4 +1,5 @@
 """1.2: the Cerberus gateway as one more chat. What the bot sends goes there, and what you type there is answered there."""
+import asyncio
 import json
 import time
 
@@ -77,3 +78,39 @@ def test_gateway_endpoint_needs_the_secret(cfg):
             time.sleep(0.02)
         assert ingests(sent) and ingests(sent)[0]["replyTo"] == "m1" and "/status" in ingests(sent)[0]["text"]
         assert json.dumps(ingests(sent)).count("Authorization") == 0
+
+
+def test_home_line_in_cerberus(ctx, libs, mega):
+    puts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            puts.append((request.url.path, json.loads(request.content), request.headers.get("authorization")))
+        return httpx.Response(200, json={"ok": True})
+
+    tg = Telegram(ctx, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert tg.home_line() == {"text": "Nothing downloading"}
+    setup_gateway(ctx)
+    mega.add(MOVIE_URL, "Dune.Part.Two.2024.2160p.mkv", [("Dune.Part.Two.2024.2160p.mkv", 2000)], kind="file")
+
+    async def go():
+        await tg.on_gateway({"channel": "linkarr", "messageId": "m1", "text": "grab this " + MOVIE_URL})
+        jid = ctx.db.one("SELECT id FROM jobs")["id"]
+        ctx.db.run("UPDATE jobs SET status = 'downloading' WHERE id = ?", (jid,))
+        ctx.db.run("UPDATE links SET bytes_done = 500 WHERE job_id = ?", (jid,))
+        line = tg.home_line()
+        assert line["text"] == "Downloading 1 · 25%" and line["progress"] == 0.25 and line["tone"] == "info"
+        ctx.db.run("UPDATE jobs SET status = 'needs_answer' WHERE id = ?", (jid,))
+        assert tg.home_line() == {"text": "🔒 1 waiting for you", "tone": "warn"}
+        ctx.db.run("UPDATE jobs SET status = 'done', finished_at = 1 WHERE id = ?", (jid,))
+        assert tg.home_line()["text"].startswith("Last added: Dune")
+        # The loop sends it once and stops when told to.
+        stop = asyncio.Event()
+        task = asyncio.create_task(tg.run_line(stop))
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+        assert len(puts) == 1 and puts[0][0] == "/api/lines/linkarr" and puts[0][1]["text"].startswith("Last added: Dune")
+        assert puts[0][2] == "Bearer cb-" + "t" * 30
+
+    run(go())

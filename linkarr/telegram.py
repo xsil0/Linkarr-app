@@ -588,6 +588,52 @@ class Telegram:
 
     _reply_to = ""
 
+    # ---- Home line in Cerberus -----------------------------------------------------------------------
+    def home_line(self) -> dict:
+        """The one line under Linkarr on Cerberus' Home screen: what needs you, what's downloading, or the last thing added."""
+        db = self.ctx.db
+        ph = ",".join("?" * len(jobs.ACTIVE))
+        active = [jobs.job_view(db, r["id"]) for r in db.query(f"SELECT id FROM jobs WHERE status IN ({ph}) ORDER BY created_at LIMIT 50", jobs.ACTIVE)]
+        held = db.one("SELECT COUNT(*) AS n FROM jobs WHERE status = 'needs_captcha'")["n"]
+        ask = held + sum(1 for j in active if j["status"] == "needs_answer")
+        down = [j for j in active if j["status"] == "downloading"]
+        parts, line = [], {}
+        if ask:
+            parts.append(f"🔒 {ask} waiting for you")
+            line["tone"] = "warn"
+        if down:
+            size, done = sum(j["size"] for j in down), sum(j["done_bytes"] for j in down)
+            pct = int(100 * done / size) if size else 0
+            parts.append(f"Downloading {len(down)} · {pct}%")
+            line["progress"] = round(done / size, 3) if size else 0
+            line.setdefault("tone", "info")
+        rest = len(active) - len(down) - sum(1 for j in active if j["status"] == "needs_answer")
+        if rest > 0:
+            parts.append(f"{rest} in the queue")
+        if not parts:
+            last = db.one("SELECT title, finished_at FROM jobs WHERE status = 'done' ORDER BY finished_at DESC LIMIT 1")
+            parts.append(f"Last added: {last['title']}" if last else "Nothing downloading")
+        line["text"] = " · ".join(parts)[:100]
+        return line
+
+    async def run_line(self, stop: asyncio.Event) -> None:
+        """Keeps the Home line in Cerberus current: sent when it changes (checked every 20 seconds), and hourly anyway."""
+        last, at = None, 0.0
+        while not stop.is_set():
+            if self.gateway_on():
+                try:
+                    line = self.home_line()
+                    if line != last or time.time() - at > 3600:
+                        r = await self.client.put(prefs.get(self.ctx.db, "gateway_url") + "/api/lines/linkarr", json=line,
+                                                  headers={"Authorization": "Bearer " + self.ctx.vault.get("gateway_token")})
+                        if r.status_code < 300:
+                            last, at = line, time.time()
+                except httpx.HTTPError as e:
+                    log.warning("Cerberus line failed: %s", e.__class__.__name__)
+                except Exception:
+                    log.exception("Cerberus line failed")
+            await _sleep(stop, 20)
+
     async def on_gateway(self, body: dict) -> None:
         """A message typed in Cerberus's Linkarr channel: a button tap (its label, and the message it was on), or text."""
         text = str(body.get("text") or "").strip()

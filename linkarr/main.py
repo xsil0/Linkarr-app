@@ -69,6 +69,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
             app.state.worker = Worker(ctx)
             tasks.append(asyncio.create_task(app.state.worker.run(stop)))
             tasks.append(asyncio.create_task(tg.run(stop)))
+            tasks.append(asyncio.create_task(tg.run_line(stop)))
         if cfg.worker and hasattr(ctx.mega, "cmd"):
             async def mega_hello():   # so the menu shows the MEGA account right after a restart
                 try:

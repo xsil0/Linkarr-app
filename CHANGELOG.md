@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+### Added
+
+- **Linkarr's line on Cerberus' Home screen.** With the Cerberus gateway set up, Linkarr keeps one line under its name on Home: what's waiting for you, what's downloading with a progress bar, or the last thing added. It's checked every 20 seconds and sent only when it changes. This needs Cerberus 0.7.0 or later.
+
 ## 1.2.0
 
 ### Added

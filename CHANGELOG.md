@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.2
+
+### Changed
+
+- **Cerberus settings stay out of the way.** Settings → Telegram only shows the Cerberus section once a
+  gateway address, token or secret is saved. To set one up from scratch, start the container with
+  `LA_GATEWAY=1`.
+- **Docs.** The README, `docs/features.md` and the Unraid notes match the app again: a tour of the pages,
+  the free space check, the Telegram commands, and plain http on your home network.
+
 ## 1.2.1
 
 ### Added

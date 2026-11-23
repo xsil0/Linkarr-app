@@ -11,6 +11,19 @@ Then it downloads, unpacks, names everything the way Plex expects
 (`Movie Name (Year)/Movie Name (Year).mkv`, `Show (Year)/Season 2/Show - S02E01.mkv`), moves it into
 the right library folder and tells Plex, Jellyfin or Emby to scan.
 
+## The pages
+
+- **Activity.** The paste bar, then **Needs you** (questions, captcha links and failed downloads in
+  one list), **Now downloading** with the title, poster, where it goes and how long it has left, what's
+  waiting, and **Just landed** (the latest finished downloads; tap one for where it went,
+  **Check Plex again**, **Move to…** and **Copy path**).
+- **Library.** Every folder in every library, filtered as you type, with seasons on disk, whether it's
+  tracked and what's missing. **Search TMDB** for anything you don't have.
+- **Tracker.** Three tabs: **Series** (with **Coming up**, the next 14 days of episodes, and a
+  Missing episodes filter), **Movies** and **Monitored links**.
+- **History.** Everything filed, with **Undo**, **Move to…** and **Fix show**.
+- **Settings.** Eight pages, listed in the [Settings reference](#settings-reference).
+
 ## How it fits next to Sonarr and Radarr
 
 Sonarr and Radarr search indexers and grab releases for you. Linkarr does no searching at all: it only
@@ -86,13 +99,17 @@ handles links **you** already have, from a file host. Think of it as the import-
   History with **Undo** and **Move to…** (re-file into another folder or library, subtitles
   included). Finished downloads say where they went ("Moved 8 files to …"). Downloads resume after
   a restart.
+- **Free space.** Before a download starts, Linkarr checks there's room for it and for unpacking it
+  (about double its size), counting everything else that's downloading, on the download drive and on
+  the library drive if that's a different disk. If not, it waits, says which drive is short, and tries
+  again every 30 minutes.
 - **MEGA quota.** Shows how much of your account's transfer allowance is left, and holds a download
   that wouldn't fit until there's room again.
 - **Tracker: series.** New season dates, finales and "this show has ended" for the shows you have,
   plus which aired episodes are missing from each show's folder. One button adds every show you
   already have. `/missing` on Telegram lists the gaps.
-- **Tracker: movies.** Add a movie you're waiting for and Linkarr tells you when it's out on Blu-ray,
-  to buy or rent, or on a streaming service (TMDB's dates and "where to watch" for your country, US
+- **Tracker: movies.** Press **Track release** on a movie in Library (or search on the Movies tab)
+  and Linkarr tells you when it's out on Blu-ray, to buy or rent, or on a streaming service (TMDB's dates and "where to watch" for your country, US
   by default). It drops off the list once it's in your library.
 - **Your download site.** Name, address and 1-3 icon letters in Settings → Accounts; it shows as
   a tab in the menu and opens in a new tab. Nothing about it is in the code. `/site` on Telegram
@@ -105,6 +122,11 @@ handles links **you** already have, from a file host. Think of it as the import-
   checks Plex actually picked it up and tells you if it didn't. Jellyfin and Emby (Settings → Media
   servers: address and an API key, with a **Test** button) scan their libraries too. Use any of them,
   or none.
+- **Telegram commands.** Send a link or a Base64 code to add it. `/status` what's downloading,
+  `/startall` start everything waiting, `/missing` episodes you don't have, `/monitor` and a link to
+  monitor it, `/roundup` this week's roundup, `/site` your download site, `/clear` clear the chat,
+  `/help` the list. Questions come with buttons, and you answer a captcha link by replying with the
+  MEGA link.
 - **Weekly roundup.** A Telegram message on the day you pick: what was added, which tracked shows
   have new episodes in the next two weeks, and the MEGA allowance left. `/roundup` sends it any time.
 - **Clean chat every night (off until you turn it on, Settings → Telegram).** At 4:00 (or the time you pick) the bot
@@ -187,10 +209,10 @@ and tokens are encrypted at rest with `/data/secret.key`.
 |---|---|
 | Setup check | what's set up and what's missing |
 | Libraries | your library folders, Movies or Shows, documentary libraries, Plex section ids |
-| Accounts | MEGA sign-in (two-factor too) and quota; TMDB key; your download site's name and address; the Send to Linkarr bookmark |
+| Accounts | MEGA sign-in (two-factor too) and quota; TMDB key; your download site's name, address and logo; the Send to Linkarr bookmark |
 | Media servers | Plex address and token, folder-only scans; Jellyfin and Emby address and API key |
-| Telegram | bot token, allowed chat ids, messages, weekly roundup, morning summary, nightly chat clear |
-| Downloads | auto-start, saved archive passwords, unpacking and cleanup, duplicate guard, quality upgrade, captcha sites, download window, monitored links, Inbox folder, subtitles |
+| Telegram | bot token, allowed chat ids, which messages you get (something landed, show news, movie release dates), weekly roundup, morning summary, nightly chat clear |
+| Downloads | auto-start, downloads at once, saved archive passwords, unpacking and cleanup, duplicate guard, quality upgrade, captcha sites, download window, monitored links, Inbox folder, subtitles |
 | Naming | movie, show, season and episode patterns; remembered shows |
 | System | theme, password, backup, Base64 decoder, logs |
 

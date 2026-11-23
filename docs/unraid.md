@@ -5,7 +5,7 @@ The image is `ghcr.io/xsil0/linkarr-app`, built by GitHub Actions on every push 
 | Tag | What |
 |---|---|
 | `latest` | newest build of `main` (use this) |
-| `0.1.0` etc. | the version in `linkarr/__init__.py` |
+| `1.2.1` etc. | one release, the version in `linkarr/__init__.py` |
 | a short commit id | one exact build, for going back |
 
 ## 1. The container
@@ -40,9 +40,11 @@ No account yet. Open Linkarr and use this setup code: 3f9c1e7a
 
 That code is only an example. Every install makes its own.
 
-## 2. HTTPS
+## 2. Opening it
 
-The sign-in cookie only works over HTTPS. With Tailscale on the server:
+On your home network, plain `http://<server-ip>:9040` works with nothing to set.
+
+To reach it from outside your home, use a VPN, not an open port. With Tailscale on the server:
 
 ```
 tailscale serve --bg --https=11443 http://localhost:9040
@@ -51,8 +53,7 @@ tailscale serve --bg --https=11443 http://localhost:9040
 Then open `https://<server>.<tailnet>.ts.net:11443`. Don't use `tailscale funnel` and don't forward
 the port on your router: Linkarr has your MEGA session in it.
 
-Plain `http://<server-ip>:9040` on your home network works too, with nothing to set. If you only
-ever use HTTPS, you can add the variable `LA_COOKIE_SECURE` = `1` so the sign-in never travels
+If you only ever use HTTPS, you can add the variable `LA_COOKIE_SECURE` = `1` so the sign-in never travels
 over plain http.
 
 ## 3. First run

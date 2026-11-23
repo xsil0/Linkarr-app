@@ -1,6 +1,5 @@
 # Linkarr
 
-<!-- INTRODUCTION: replace this paragraph with your own words. -->
 Before you ask: yes, this was vibe coded with Claude. I’m not a developer by trade. I built it to scratch my own itch, and now I use it every day.
 
 Linkarr started as a fix for my own niche problem: getting MEGA links into Plex without the busywork. It turned out more useful than I expected, so I’m sharing it in case it helps you too.
@@ -15,16 +14,19 @@ your own server.
 
 ## What it does
 
-- **Paste a link or a code.** Base64 codes are decoded again and again until a MEGA or captcha link comes out.
+- **Paste a link or a code.** Base64 codes are decoded, up to 4 layers deep, until a MEGA or captcha link comes out.
 - **Several links at once.** You pick what to add, and what you already have is left unticked.
 - **Send to Linkarr bookmark.** Picks up the MEGA links on the page you're looking at. Linkarr itself never visits any site.
 - **Names and files it.** `Movie (Year)/Movie (Year).mkv`, `Show (Year)/Season 2/Show - S02E01.mkv`.
 - **Unpacks and cleans up.** zip, rar and 7z, passwords too. Samples and junk go.
 - **Never overwrites.** Replaced files sit in a recycle folder for 7 days. Every move can be undone.
-- **Tracks your shows.** New episodes, missing episodes, finales and cancellations.
+- **Tracker.** For series: what's coming up in the next two weeks, missing episodes, finales and
+  cancellations. For movies: when one you're waiting for is out to buy, rent or stream.
+- **Monitored links.** Checks a show's MEGA folder link for new episodes and downloads only the new ones (off until you turn it on).
+- **Library search.** Type a name to see if you already have it, with seasons on disk and what's missing.
 - **Tells Plex.** Plex, Jellyfin or Emby scan the right library when something lands.
 - **Telegram bot.** Send links from your phone and answer questions with buttons.
-- **Watches your MEGA quota.** Holds a download that wouldn't fit until there's room.
+- **Watches your MEGA quota and disk space.** Holds a download that wouldn't fit until there's room.
 
 [Everything it does](docs/features.md)
 

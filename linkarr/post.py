@@ -56,9 +56,15 @@ def _labels(text: str, urls: list[str]) -> dict[str, str]:
     return out
 
 
+def unescape(text: str) -> str:
+    """Reddit's Markdown (and some forums) put a backslash before _ * # in a pasted link: mega.nz/folder/ab\\_cd#…
+    The backslash isn't part of the link."""
+    return re.sub(r"\\([_*#!~\-])", r"\1", text or "")
+
+
 def links_in(text: str, hosts: list[str]) -> tuple[list[str], list[str]]:
     """(MEGA links, captcha links) in a post, in order. Base64 codes in the text are decoded too."""
-    text = (text or "")[:MAX_TEXT]
+    text = unescape((text or "")[:MAX_TEXT])
     mega = find_links(decode._with_scheme(text))
     caps = captcha.find(text, hosts)
     for tok in list(dict.fromkeys(_TOKEN.findall(text)))[:MAX_CODES]:
@@ -143,7 +149,7 @@ async def scan(ctx, text: str, hosts: list[str]) -> dict:
     mega, caps = links_in(text, hosts)
     more = max(0, len(mega) - MAX_LINKS)
     mega = mega[:MAX_LINKS]
-    labels = _labels(text, mega)
+    labels = _labels(unescape(text), mega)
     queued = {r["url"] for r in ctx.db.query(
         "SELECT l.url FROM links l JOIN jobs j ON j.id = l.job_id WHERE j.status NOT IN ('done','canceled')")}
     # Links you've already downloaded (going back to the same thread for its new links): left unticked.
@@ -182,9 +188,36 @@ async def scan(ctx, text: str, hosts: list[str]) -> dict:
                     break
         if item["seasons"]:
             item["kind"] = "series"
+        if not item["title"] and item["kind"] == "series":
+            # 'Season 1' on its own: the show is in the episode files, or in the post next to the link.
+            from .jobs import show_from_files, show_from_hint
+            item["title"] = show_from_files(pv.files) or show_from_hint(label)
         item["have"] = _have(shelf, item)
         return item
 
     items = list(await asyncio.gather(*(one(u) for u in mega)))
     choose(items)
     return {"links": items, "captcha": caps[:10], "password": find_password(text), "more": more}
+
+
+async def add_picked(ctx, items: list[dict], password: str = "") -> list[dict]:
+    """Adds the links picked from a post, the way the app's picker does: the seasons of one show become one
+    job so they're filed together, and a password found in the post goes on each new job. Returns the jobs."""
+    from . import jobs
+    job_for: dict[str, int] = {}
+    made: list[int] = []
+    errors: list[dict] = []
+    for it in items:
+        key = re.sub(r"[^a-z0-9]+", "", (it.get("title") or "").lower()) if it.get("kind") == "series" else ""
+        try:
+            job = await jobs.add_link(ctx, it["url"], job_for.get(key) if key else None, hint=it.get("label") or "")
+        except jobs.JobError as e:
+            errors.append({"error": str(e), "url": it["url"]})
+            continue
+        if key and key not in job_for:
+            job_for[key] = job["id"]
+        if job["id"] not in made:
+            made.append(job["id"])
+            if password and not job.get("has_password"):
+                ctx.db.run("UPDATE jobs SET archive_password=? WHERE id=?", (password, job["id"]))
+    return [jobs.job_view(ctx.db, i) for i in made] + errors

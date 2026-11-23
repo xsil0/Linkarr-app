@@ -5,7 +5,7 @@ The image is `ghcr.io/xsil0/linkarr-app`, built by GitHub Actions on every push 
 | Tag | What |
 |---|---|
 | `latest` | newest build of `main` (use this) |
-| `1.2.1` etc. | one release, the version in `linkarr/__init__.py` |
+| `1.2.2` etc. | one release, the version in `linkarr/__init__.py` |
 | a short commit id | one exact build, for going back |
 
 ## 1. The container

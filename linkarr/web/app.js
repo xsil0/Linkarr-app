@@ -222,15 +222,20 @@
         <div class="side-foot" id="side-foot"></div>
       </aside>
       <main class="main"><div class="top"><img class="top-mark" src="/static/mark.svg" alt=""><h1 id="page-title"></h1><div class="grow"></div><div id="top-extra"></div></div>
-        <form class="paste" id="paste"><label for="paste-input">link &gt;</label><input type="text" id="paste-input" placeholder="Paste a MEGA link or a Base64 code" autocomplete="off" spellcheck="false"><button class="btn primary">Add</button></form>
+        <form class="paste" id="paste"><label for="paste-input">link &gt;</label><input type="text" id="paste-input" placeholder="Paste a MEGA link, a whole post, or a Base64 code" autocomplete="off" spellcheck="false"><button class="btn primary">Add</button></form>
         <div id="page"></div></main>
       <nav class="tabbar" id="tabbar" aria-label="Pages"></nav></div>`;
     $("#paste").addEventListener("submit", (e) => { e.preventDefault(); addLinks($("#paste-input").value); });
     // A whole post pasted in: a one-line box would flatten it and lose which label goes with which link,
     // so the picker opens straight away with the text as it was.
+    // Copied from a web page (Reddit, a forum), the links are often words like "Season 1" with the MEGA address
+    // behind them: the plain text has no link at all. The page's HTML still has it, so read that too.
     $("#paste-input").addEventListener("paste", (e) => {
-      const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
-      if (!/\n/.test(t.trim()) && findUrls(t).length < 2) return;
+      const cd = e.clipboardData;
+      const plain = (cd && cd.getData("text")) || "";
+      const rich = cd ? linkedText(cd.getData("text/html")) : "";
+      const t = rich && hiddenLinks(rich, plain) ? rich : plain;
+      if (t === plain && !/\n/.test(t.trim()) && findUrls(t).length < 2) return;
       e.preventDefault();
       addLinks(t, { ask: true });
     });
@@ -300,6 +305,22 @@
     return [...alerts.map((a) => ({ alert: a })), ...failed.map((j) => ({ failed: j })), ...caps.map((j) => ({ captcha: j }))];
   }
 
+  // Copied HTML as text, with each link's address written after its words ("Season 1 https://mega.nz/…"),
+  // so the picker still knows which label goes with which link. Nothing in it is run or loaded.
+  function linkedText(html) {
+    if (!html || !/<a\b/i.test(html)) return "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (/^https?:\/\//i.test(href) && !(a.textContent || "").includes(href)) a.append(" " + href + " ");
+    });
+    doc.querySelectorAll("br").forEach((b) => b.replaceWith("\n"));
+    doc.querySelectorAll("p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre").forEach((el) => el.append("\n"));
+    return (doc.body ? doc.body.textContent : "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  // Did the HTML have links the plain text lost?
+  const hiddenLinks = (rich, plain) => (rich.match(/https?:\/\/\S+/g) || []).some((u) => !plain.includes(u));
+
   const findUrls = (text) => (text || "").match(/(https?:\/\/(?:www\.)?mega\.(?:nz|co\.nz|io)\/[^\s<>"']+|mega:\/\/[^\s<>"']+)/gi) || [];
 
   async function addLinks(text, opts) {
@@ -312,6 +333,7 @@
       let d = { layers: [] };
       try { d = await api("POST", "/api/decode", { text }); } catch (e) { /* the plain message below is enough */ }
       toast(d.layers && d.layers.length ? `Decoded ${d.layers.length} time${d.layers.length > 1 ? "s" : ""} but found no MEGA link. Settings → System → Decoder shows what's inside.`
+        : /https?:\/\/\S+/i.test(text) ? "That's a link to a page, and Linkarr doesn't open pages. Copy the post's text with its links and paste that instead."
         : "No MEGA link in that. Paste a MEGA link or a Base64 code.");
       return;
     }
@@ -331,7 +353,7 @@
     const jobFor = {};
     for (const it of items) {
       const key = it.kind === "series" && it.title ? it.title.toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
-      const body = { url: it.url };
+      const body = { url: it.url, hint: (it.label || "").slice(0, 200) };
       if (key && jobFor[key]) body.job_id = jobFor[key];
       else if (password) body.archive_password = password;
       try {
@@ -367,7 +389,9 @@
     const useLabels = labels.size > 1;  // the same words next to every link say nothing
     const row = (l, i) => {
       const dead = !!l.error;
-      const name = l.name || l.label || l.url.split("#")[0];
+      const raw = l.name || l.label || l.url.split("#")[0];
+      // 'Season 1' on its own says nothing; show which show the files or the post named.
+      const name = l.title && !raw.toLowerCase().includes(l.title.toLowerCase()) ? `${l.title} · ${raw}` : raw;
       const bits = [l.kind === "series" ? (l.seasons.length ? (l.seasons.length > 1 ? `Seasons ${l.seasons[0]}–${l.seasons[l.seasons.length - 1]}` : `Season ${l.seasons[0]}`) : "Series") : "Movie"];
       if (l.size) bits.push(fmtBytes(l.size));
       if (l.files > 1) bits.push(`${l.files} files`);
@@ -1531,9 +1555,12 @@
   function sendToLinkarr(p) {
     const hosts = (p.captcha_hosts || "").split(/[\s,]+/).filter(Boolean).map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const re = ["mega\\.nz", "mega\\.co\\.nz", ...hosts].join("|");
-    const code = "javascript:(function(){var r=/" + re.replace(/\//g, "\\/") + "/i,l=[].map.call(document.links,function(a){return a.href}).filter(function(h){return r.test(h)}).slice(0,30),"
-      + "t=String(getSelection())||document.body.innerText;window.open(" + JSON.stringify(location.origin + "/share?text=")
-      + "+encodeURIComponent((l.join('\\n')+'\\n'+t).slice(0,3000)),'_blank','noopener')})()";
+    // With text selected, only the links inside the selection go (a Reddit page also has links in its comments).
+    const code = "javascript:(function(){var r=/" + re.replace(/\//g, "\\/") + "/i,s=getSelection(),a=document.links;"
+      + "if(s.rangeCount&&!s.isCollapsed){var d=document.createElement('div');for(var i=0;i<s.rangeCount;i++)d.appendChild(s.getRangeAt(i).cloneContents());a=d.querySelectorAll('a[href]')}"
+      + "var l=[].map.call(a,function(x){return x.href}).filter(function(h){return r.test(h)}).slice(0,60),"
+      + "t=String(s)||document.body.innerText;window.open(" + JSON.stringify(location.origin + "/share?text=")
+      + "+encodeURIComponent((l.join('\\n')+'\\n'+t).slice(0,6000)),'_blank','noopener')})()";
     state.bookmarklet = code;
     return `<div class="row"><a class="bookmarklet" href="${esc(code)}" draggable="true">${ICON.link}Send to Linkarr</a>
       <button class="btn sm ghost" data-action="copy-bookmarklet">Copy the code</button></div>

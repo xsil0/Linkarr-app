@@ -272,12 +272,13 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         job_id: int | None = None
         kind: str | None = None
         archive_password: str = Field(default="", max_length=100)
+        hint: str = Field(default="", max_length=200)  # what the post said next to the link
 
     @app.post("/api/jobs")
     async def new_job(body: NewLink, request: Request):
         ctx = ctx_of(request)
         try:
-            job = await jobs.add_link(ctx, body.url, body.job_id, body.kind if body.kind in ("movie", "series") else None)
+            job = await jobs.add_link(ctx, body.url, body.job_id, body.kind if body.kind in ("movie", "series") else None, body.hint)
         except JobError as e:
             fail(e)
         if body.archive_password and not body.job_id and not job["has_password"]:
@@ -1158,7 +1159,7 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
         # shows what it found and waits for you to pick: opening this address never adds anything.
         from urllib.parse import quote
         shared = "\n".join(x for x in (title, text, url) if x and x.strip())
-        return RedirectResponse("/?share=" + quote(shared[:4000]), status_code=303)
+        return RedirectResponse("/?share=" + quote(shared[:8000]), status_code=303)
 
     app.mount("/static", StaticFiles(directory=WEB), name="static")
 

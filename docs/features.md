@@ -46,12 +46,17 @@ handles links **you** already have, from a file host. Think of it as the import-
   When the same title comes in several qualities only the best is ticked; every season is ticked.
   **Add 3** takes what's ticked, **Add all** takes everything. Seasons of one show become one job, and
   captcha links are held (see below). A password next to the links ("Password: abc") is filled in.
+  Copy a whole post (Reddit, a forum) and paste it in the box: links hidden behind words like "Season 1"
+  come along too. Send the same post to the Telegram bot and it lists the links with **Add N ticked**
+  and **Add all new** buttons. A link to the post itself doesn't work: Linkarr never opens pages.
+- **Links called only "Season 1".** The show name comes from the episode files inside, or from what the
+  post says next to the link, and the job waits for you to check it.
 - **Base64 codes.** Paste a code and Linkarr decodes it, up to 4 layers deep, until a MEGA link or a
   captcha link comes out.
 - **Send to Linkarr.** Settings → Accounts has a bookmark button. On a computer, drag it to the
   bookmarks bar; on an iPhone, paste the copied code as a bookmark's address; on Android, install
-  Linkarr from the browser menu and use Share. Open the page with the links, select part of it if you like, and press the bookmark: it sends the
-  MEGA links on that page to your own Linkarr, which opens the picker. Linkarr itself never visits or
+  Linkarr from the browser menu and use Share. Open the page with the links, select the post if you like, and press the bookmark: it sends the
+  MEGA links in what you selected (or on the whole page) to your own Linkarr, which opens the picker. Linkarr itself never visits or
   signs in to any site.
 - **Saved archive passwords.** Settings → Downloads → Archive passwords: one per line, tried in order
   on locked archives when the job has none. `{year}`, `{title}`, `{Title}` and `{title_nospace}` are

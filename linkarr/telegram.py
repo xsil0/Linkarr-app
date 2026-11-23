@@ -22,7 +22,7 @@ import time
 
 import httpx
 
-from . import captcha, decode, jobs, prefs, roundup, tracker, watch
+from . import captcha, decode, jobs, post, prefs, roundup, tracker, watch
 from .mega import find_links, is_folder
 
 log = logging.getLogger("linkarr.telegram")
@@ -317,7 +317,7 @@ class Telegram:
 
     async def on_message(self, msg: dict) -> None:
         chat = str(msg.get("chat", {}).get("id", ""))
-        text = msg.get("text") or msg.get("caption") or ""
+        text = with_hidden_links(msg)
         if chat not in self.chats():
             if text.startswith("/start"):
                 await self.send(chat, f"This chat's id is <code>{html.escape(chat)}</code>. Add it in Linkarr → Settings → "
@@ -363,6 +363,7 @@ class Telegram:
             await self.on_watch(chat, text)
             return
         hosts = prefs.captcha_hosts(self.ctx.db)
+        text = post.unescape(text)
         links = find_links(text)
         caps = captcha.find(text, hosts)
         if not links and not caps:
@@ -371,11 +372,15 @@ class Telegram:
                 await self.offer_decoded(chat, found)
                 return
             if not found["captcha"]:
-                await self.send(chat, self.help_text())
+                await self.send(chat, self.page_link_text(text) or self.help_text())
                 return
             caps = found["captcha"]
         if caps:
             await self.on_captcha_links(chat, caps)
+        if len(links) > 1:
+            # A whole post: show what's in it and let you pick, like the app's picker.
+            await self.offer_post(chat, text, hosts)
+            return
         for url in links:
             try:
                 job = await jobs.add_link(self.ctx, url)
@@ -434,6 +439,78 @@ class Telegram:
             text_, rows = self.job_card(job)
             await self.send(chat, text_, rows, job["id"])
 
+    @staticmethod
+    def page_link_text(text: str) -> str:
+        """A link to a web page (a Reddit post, a forum thread) with no MEGA link in the message itself."""
+        m = re.search(r"https?://([^/\s]+)\S*", text or "")
+        if not m:
+            return ""
+        site = m.group(1).lower().removeprefix("www.")
+        return (f"That's a link to a page on {html.escape(site)}, and Linkarr doesn't open pages. It only reads what you send.\n\n"
+                "Send the post's text instead: open the post, select the text with the links, and share or paste that.\n"
+                "From the Reddit app, Share only sends the post's address. Open it in the browser and copy the text there.")
+
+    async def offer_post(self, chat: str, text: str, hosts: list[str]) -> None:
+        """Several MEGA links in one message: list them with what's ticked, and add on a tap."""
+        e = html.escape
+        r = await post.scan(self.ctx, text, hosts)
+        items = r["links"]
+        ticked = [x for x in items if x["selected"]]
+        fresh = [x for x in items if not x["error"] and not x["have"]]
+        keep = lambda x: {k: x.get(k) for k in ("url", "kind", "title", "label")}  # noqa: E731
+        pid = secrets.token_hex(4)
+        for old in self.ctx.db.query("SELECT key, value FROM settings WHERE key LIKE 'tg_post.%'"):
+            if (json.loads(old["value"] or "{}") or {}).get("at", 0) < time.time() - 7 * 86400:
+                self.ctx.db.run("DELETE FROM settings WHERE key = ?", (old["key"],))  # cards nobody answered
+        self.ctx.db.set_setting("tg_post." + pid, {"some": [keep(x) for x in ticked], "all": [keep(x) for x in fresh],
+                                                   "password": r["password"], "at": time.time()})
+        lines = [f"📋 <b>{len(items)} links in this post</b>"]
+        for x in items[:20]:
+            name = x["name"] or x["label"] or x["url"].split("#")[0]
+            if x["title"] and x["title"].lower() not in name.lower():
+                name = f"{x['title']} · {name}"
+            bits = [b for b in (x["resolution"], gb(x["size"]) if x["size"] else "") if b]
+            mark = "⚠️" if x["error"] else "✅" if x["selected"] else "▫️"
+            why = x["error"] or x["have"] or ("Another quality is ticked." if x["group"] and not x["selected"] else "")
+            lines.append(f"{mark} {e(name)}" + (f" · {e(' · '.join(bits))}" if bits else "") + (f"\n     <i>{e(why)}</i>" if why else ""))
+        if len(items) > 20:
+            lines.append(f"…and {len(items) - 20} more.")
+        if r["more"]:
+            lines.append(f"{r['more']} more links weren't read. Send them in a second message.")
+        if r["password"]:
+            lines.append(f"\nPassword in the post: <code>{e(r['password'])}</code>")
+        rows = []
+        if ticked:
+            rows.append([(f"➕ Add {len(ticked)} ticked", f"post:{pid}:some")])
+        if len(fresh) > len(ticked):
+            rows.append([(f"Add all {len(fresh)} new", f"post:{pid}:all")])
+        rows.append([("No thanks", f"post:{pid}:no")])
+        if not ticked and not fresh:
+            lines.append("\nNothing new to add.")
+        await self.send(chat, "\n".join(lines), rows)
+
+    async def on_post_button(self, q: dict, chat: str, pid: str, which: str) -> None:
+        msg = q.get("message", {})
+        await self.api("answerCallbackQuery", callback_query_id=q["id"])
+        saved = self.ctx.db.get_setting("tg_post." + pid) if pid else None
+        self.ctx.db.run("DELETE FROM settings WHERE key = ?", ("tg_post." + pid,))
+        mid = msg.get("message_id")
+        if which == "no" or not saved:
+            if mid:
+                await self.edit(chat, mid, "Okay, nothing added." if which == "no" else "That one's gone. Send the post again.")
+            return
+        made = await post.add_picked(self.ctx, saved.get(which) or [], saved.get("password") or "")
+        good = [j for j in made if "id" in j]
+        bad = [j for j in made if "error" in j]
+        summary = f"➕ <b>Added {len(good)} job{'s' if len(good) != 1 else ''}</b>"
+        if bad:
+            summary += "\n" + "\n".join(f"⚠️ {html.escape(b['error'])}" for b in bad[:5])
+        if mid:
+            await self.edit(chat, mid, summary)
+        for job in good:
+            text_, rows = self.job_card(job)
+            await self.send(chat, text_, rows, job["id"])
+
     async def offer_decoded(self, chat: str, found: dict) -> None:
         """A Base64 code turned into a MEGA link: ask before adding it."""
         n = len(found["layers"])
@@ -467,6 +544,9 @@ class Telegram:
         parts = data.split(":")
         note = ""
         job_id = None
+        if parts[0] == "post":
+            await self.on_post_button(q, chat, parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "no")
+            return
         if parts[0] == "add":
             await self.on_add_button(q, chat, parts[1] if len(parts) > 1 else "no")
             return
@@ -665,6 +745,25 @@ class Telegram:
 
     async def close(self):
         await self.client.aclose()
+
+
+def with_hidden_links(msg: dict) -> str:
+    """A message's text with the address of every link hidden behind words written in after them. Text copied
+    from Reddit or a forum keeps its links that way ("Season 1" that opens a MEGA folder): Telegram sends the
+    words in 'text' and the address only in the message's entities."""
+    text = msg.get("text") or msg.get("caption") or ""
+    ents = msg.get("entities") or msg.get("caption_entities") or []
+    hidden = [(x.get("offset", 0) + x.get("length", 0), x["url"]) for x in ents if x.get("type") == "text_link" and x.get("url")]
+    if not hidden:
+        return text
+    units = text.encode("utf-16-le")  # Telegram counts offsets in UTF-16 code units
+    out, last = [], 0
+    for end, url in sorted(hidden):
+        out.append(units[last * 2:end * 2].decode("utf-16-le", errors="ignore"))
+        out.append(f" {url} ")
+        last = end
+    out.append(units[last * 2:].decode("utf-16-le", errors="ignore"))
+    return "".join(out)
 
 
 def gateway_plain(text: str) -> str:

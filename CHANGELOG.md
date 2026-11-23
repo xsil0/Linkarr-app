@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.3
+
+### Fixed
+
+- **Wrong show on a link called "Season 1".** Once you'd matched a "Season 200 - The Science of …"
+  link to a show and ticked "do the same for every link named like this", every later link named just
+  "Season N" went to that show too, so an Entourage season showed up as MasterClass. The remembered
+  show now only fills in links shaped like the one you matched ("Season N - lesson name"). A plain
+  "Season 1" link takes the show from its episode files ("Entourage.S01E01…") or from what the post
+  says next to it, and waits for you to check it. With neither, Linkarr asks which show it is.
+- **Pasting a post with hidden links.** Reddit and forums often put the MEGA address behind words
+  ("Season 1"). Pasting such a post into the box now reads the addresses from the copied page, not
+  just the words, and keeps each label with its link.
+- **Telegram and hidden links.** A message with links behind words now gives the bot the addresses
+  too. Reddit's backslashes in links (`ab\_cd`) are dropped.
+
+### Added
+
+- **Whole posts in Telegram.** Send the bot a message with several MEGA links and it lists them,
+  ticked the same way as the app's picker (best quality, every season, not what you have), with
+  **Add N ticked**, **Add all new** and **No thanks**. Seasons of one show become one job.
+- **A link to a page explains itself.** Sending the bot (or pasting) a link to a Reddit post or another
+  page says Linkarr doesn't open pages and to send the post's text instead.
+- **Send to Linkarr with a selection** sends only the links inside what you selected, not every MEGA
+  link on the page (a Reddit page also has links in its comments).
+
 ## 1.2.2
 
 ### Changed

@@ -15,7 +15,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import captcha, decode, files, naming, prefs, tracker
+from . import captcha, decode, files, naming, parse, prefs, tracker
 from .config import Config
 from .db import Database, now
 from .mega import Mega, MegaError, find_links
@@ -184,17 +184,69 @@ def _preselect(files_: list) -> list:
     return out
 
 
-async def identify(ctx: Ctx, name: str, files_: list | None = None, kind_hint: str | None = None) -> dict:
-    """Best guess at what a release is: parsed name, then the top TMDB hit."""
+def show_from_files(files_: list | None) -> str:
+    """The show the episode files inside a link name ('Entourage.S01E03.720p.mkv' gives 'Entourage'), for a
+    link whose own name has none ('Season 1'). '' when the files don't agree or don't say."""
+    seen: dict[str, int] = {}
+    shown: dict[str, str] = {}
+    for f in files_ or []:
+        if not is_video(f["path"]):
+            continue
+        info = parse_name(f["path"].rsplit("/", 1)[-1])
+        if info["episode"] is None or not info["title"]:
+            continue
+        k = naming.norm(info["title"])
+        seen[k] = seen.get(k, 0) + 1
+        shown.setdefault(k, info["title"])
+    if not seen:
+        return ""
+    best = max(seen, key=seen.get)
+    return shown[best] if seen[best] * 2 > sum(seen.values()) else ""
+
+
+def show_from_hint(hint: str) -> str:
+    """The show a post names next to a link ('Entourage Season 1 (720p)'), or ''."""
+    info = parse_name(hint or "")
+    t = info["title"]
+    if not t or info["kind"] != "series" or not re.search(r"[^\W\d_]{3}", t):
+        return ""
+    return t
+
+
+async def identify(ctx: Ctx, name: str, files_: list | None = None, kind_hint: str | None = None, hint: str = "") -> dict:
+    """Best guess at what a release is: parsed name, then the top TMDB hit. A season with no show name in it
+    ('Season 1') takes the show from its episode files, or from what the post said next to the link (hint)."""
     info = parse_name(name)
     if info["kind"] == "movie" and files_:
         vids = [f for f in files_ if is_video(f["path"])]
         if len(vids) > 2 and any(parse_name(f["path"].rsplit("/", 1)[-1])["episode"] is not None for f in vids):
             info["kind"] = "series"
     kind = kind_hint or info["kind"]
+    borrowed = ""
+    if not info["title"] and kind == "series":
+        borrowed = show_from_files(files_) or show_from_hint(hint)
     guess = {"kind": kind, "title": info["title"], "year": info["year"], "tmdb_id": None, "poster": "",
              "genres": [], "documentary": False, "resolution": info["resolution"],
              "sure": False, "note": "Linkarr couldn't look this up on TMDB. Check the title.", "show_unknown": False}
+    if borrowed:
+        # The link only says 'Season 1'. Look the show up by the name its files (or the post) give, and if
+        # TMDB doesn't know it, fall through to "which show?" as before rather than file it under a guess.
+        sub = dict(info, title=borrowed)
+        if ctx.tmdb.configured():
+            try:
+                hits = await ctx.tmdb.search(borrowed, "series", info["year"])
+                if hits:
+                    best = max(hits[:5], key=lambda h: naming.score(borrowed, h["title"], info["year"]))
+                    det = await ctx.tmdb.details(best["kind"], best["id"])
+                    guess.update({"kind": best["kind"], "title": det["title"], "year": det["year"], "tmdb_id": det["id"],
+                                  "poster": det["poster"], "genres": det.get("genres", []), "documentary": det["documentary"]})
+                    guess["sure"], guess["note"] = how_sure(sub, best, hits)
+                    guess["sure"] = False  # the link's own name doesn't say, so you always get to check it
+                    where = "its files" if show_from_files(files_) else "the post"
+                    guess["note"] = guess["note"] or f"The link is only called “{name}”. The show name came from {where}. Check it's right."
+                    return guess
+            except TmdbError as e:
+                log.warning("TMDB lookup failed: %s", e)
     if not info["title"] and kind == "series":
         # 'Season 200 - The Science of Connection': a season with no show name. Nothing to look up.
         guess.update({"show_unknown": True, "note": "Linkarr can't tell which show this is. Use Match to show."})
@@ -374,7 +426,7 @@ def quality_text(q: dict) -> str:
     return "You already have this movie."
 
 
-async def add_link(ctx: Ctx, url: str, job_id: int | None = None, kind_hint: str | None = None) -> dict:
+async def add_link(ctx: Ctx, url: str, job_id: int | None = None, kind_hint: str | None = None, hint: str = "") -> dict:
     """Reads a link and makes a draft job (or adds the link to an existing job)."""
     urls = find_links(url)
     if not urls:
@@ -400,7 +452,7 @@ async def add_link(ctx: Ctx, url: str, job_id: int | None = None, kind_hint: str
         if job["status"] == "needs_captcha":
             raise JobError("Finish the captcha first, then paste the MEGA link in the captcha box.")
     else:
-        guess = await identify(ctx, pv.name, flist, kind_hint)
+        guess = await identify(ctx, pv.name, flist, kind_hint, hint)
         warn = preview_warning(pv, flist)
         if warn:
             guess["note"] = warn
@@ -422,7 +474,9 @@ async def add_link(ctx: Ctx, url: str, job_id: int | None = None, kind_hint: str
     ctx.db.run("UPDATE jobs SET status='queued', finished_at=NULL, error='', updated_at=? "
                "WHERE id=? AND status NOT IN ('draft','moving','needs_answer')", (t, job_id))
     refresh_target(ctx, job_id, keep_folder=True)
-    if new_job:
+    if new_job and (guess.get("show_unknown") or show_key(pv.name)):
+        # A remembered 'Season N - …' show only fills in a link nobody could name. A link whose files or
+        # post said which show it is never gets swapped for the remembered one.
         use_remembered(ctx, job_id, pv.name)
     if new_job and prefs.get(ctx.db, "auto_start") and can_auto_start(ctx, job_id):
         start_job(ctx, job_id)
@@ -777,6 +831,17 @@ def show_key(name: str) -> str | None:
     return naming.norm(info["title"]) if info["title"] else ""
 
 
+def _lesson_name(name: str) -> bool:
+    """'Season 200 - The Science of Connection': a season number, a dash, then words that aren't quality tags.
+    That's the shape a remembered 'Season N - …' show is for. 'Season 1' or 'Season 1 1080p' isn't it."""
+    base = re.sub(r"[._]+", " ", parse.strip_ext((name or "").rsplit("/", 1)[-1])).strip()
+    m = re.match(r"(?i)^(?:season|stagione|saison|temporada|staffel)\s*\d{1,4}\s*[-–:]\s*(.+)$", base)
+    if not m:
+        return False
+    words = parse._STOP.sub(" ", m.group(1))
+    return bool(re.search(r"[^\W\d_]{3}", words))
+
+
 def key_label(key: str) -> str:
     return "Links named “Season N - …”" if key == "" else f"Links named “{key}”"
 
@@ -893,6 +958,8 @@ def apply_show(ctx: Ctx, job_id: int, show: dict) -> None:
 def use_remembered(ctx: Ctx, job_id: int, name: str) -> bool:
     """A new link named like one you matched before ('Season N - …') goes to the same show."""
     key = show_key(name)
+    if key == "" and not _lesson_name(name):
+        return False  # plain 'Season 1': the remembered rule is for 'Season 200 - The Science of …' links only
     show = (ctx.db.get_setting(ALIASES, {}) or {}).get(key) if key is not None else None
     if not show or not library(ctx.db, show.get("library_id")):
         return False

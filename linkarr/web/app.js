@@ -306,17 +306,40 @@
   }
 
   // Copied HTML as text, with each link's address written after its words ("Season 1 https://mega.nz/…"),
-  // so the picker still knows which label goes with which link. Nothing in it is run or loaded.
+  // so the picker still knows which label goes with which link. The HTML is never parsed into a page or
+  // put on one: it's read as tags and text, and only text comes out.
+  const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'" };
+  const unentity = (t) => t.replace(/&(#\d{1,6}|#x[0-9a-f]{1,6}|[a-z]{2,6});/gi, (m, n) => {
+    const k = n.toLowerCase();
+    if (k in ENTITIES) return ENTITIES[k];
+    if (k[0] === "#") { const c = k[1] === "x" ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : ""; }
+    return m;
+  });
+  const BLOCK = new Set(["br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre"]);
   function linkedText(html) {
     if (!html || !/<a\b/i.test(html)) return "";
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    doc.querySelectorAll("a[href]").forEach((a) => {
-      const href = a.getAttribute("href") || "";
-      if (/^https?:\/\//i.test(href) && !(a.textContent || "").includes(href)) a.append(" " + href + " ");
-    });
-    doc.querySelectorAll("br").forEach((b) => b.replaceWith("\n"));
-    doc.querySelectorAll("p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre").forEach((el) => el.append("\n"));
-    return (doc.body ? doc.body.textContent : "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    const out = [];
+    const open = [];  // addresses of the links we're inside
+    let skip = 0;     // inside <script>/<style>: not text
+    for (const part of html.slice(0, 400000).split(/(<[^<>]*>)/)) {
+      if (part[0] !== "<" || part[part.length - 1] !== ">") { if (!skip) out.push(unentity(part)); continue; }
+      const m = /^<\s*(\/?)\s*([a-z0-9]+)/i.exec(part);
+      if (!m) continue;
+      const close = !!m[1], tag = m[2].toLowerCase();
+      if (tag === "script" || tag === "style") { skip = Math.max(0, skip + (close ? -1 : 1)); continue; }
+      if (tag === "a") {
+        if (!close) {
+          const h = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(part);
+          open.push(h ? unentity(h[1] || h[2] || h[3] || "").trim() : "");
+        } else {
+          const href = open.pop() || "";
+          if (/^https?:\/\//i.test(href)) out.push(" " + href + " ");
+        }
+        continue;
+      }
+      if (BLOCK.has(tag)) out.push("\n");
+    }
+    return out.join("").split("\n").map((l) => l.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
   // Did the HTML have links the plain text lost?
   const hiddenLinks = (rich, plain) => (rich.match(/https?:\/\/\S+/g) || []).some((u) => !plain.includes(u));
@@ -1556,7 +1579,7 @@
     const hosts = (p.captcha_hosts || "").split(/[\s,]+/).filter(Boolean).map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const re = ["mega\\.nz", "mega\\.co\\.nz", ...hosts].join("|");
     // With text selected, only the links inside the selection go (a Reddit page also has links in its comments).
-    const code = "javascript:(function(){var r=/" + re.replace(/\//g, "\\/") + "/i,s=getSelection(),a=document.links;"
+    const code = "javascript:(function(){var r=new RegExp(" + JSON.stringify(re) + ",'i'),s=getSelection(),a=document.links;"
       + "if(s.rangeCount&&!s.isCollapsed){var d=document.createElement('div');for(var i=0;i<s.rangeCount;i++)d.appendChild(s.getRangeAt(i).cloneContents());a=d.querySelectorAll('a[href]')}"
       + "var l=[].map.call(a,function(x){return x.href}).filter(function(h){return r.test(h)}).slice(0,60),"
       + "t=String(s)||document.body.innerText;window.open(" + JSON.stringify(location.origin + "/share?text=")

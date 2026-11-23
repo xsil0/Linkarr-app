@@ -114,4 +114,4 @@ def test_telegram_post_with_hidden_links_lists_then_adds_one_job_per_show(ctx, l
 def test_telegram_page_link_explains_why(ctx):
     tg, sent = make_tg(ctx)
     run(tg.on_message({"chat": {"id": 42}, "text": "https://www.reddit.com/r/something/comments/abc/entourage/"}))
-    assert "doesn't open pages" in sent.calls[-1][1]["text"] and "reddit.com" in sent.calls[-1][1]["text"]
+    assert sent.calls[-1][1]["text"].startswith("That's a link to a page on reddit.com, and Linkarr doesn't open pages.")

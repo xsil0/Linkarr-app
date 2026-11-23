@@ -114,3 +114,32 @@ def test_home_line_in_cerberus(ctx, libs, mega):
         assert puts[0][2] == "Bearer cb-" + "t" * 30
 
     run(go())
+
+
+def test_cerberus_settings_hidden_until_a_gateway_is_set(cfg):
+    """1.2.2: Cerberus is a private gateway, so its settings stay out of the way until one is set (or LA_GATEWAY=1)."""
+    from dataclasses import replace
+
+    from linkarr import auth
+
+    def settings(c):
+        return c.get("/api/settings").json()["gateway"]
+
+    for env_on in (False, True):
+        app = create_app(replace(cfg, gateway=env_on), mega=FakeMega(),
+                         tmdb_client=httpx.AsyncClient(transport=httpx.MockTransport(tmdb_handler)))
+        with TestClient(app) as c:
+            if env_on is False:
+                code = auth.setup_code(c.app.state.ctx.db)
+                assert c.post("/api/auth/setup", json={"code": code, "username": "admin", "password": "correct horse battery"},
+                              headers={"X-Linkarr": "1"}).status_code == 200
+                assert settings(c) is False
+                setup_gateway(c.app.state.ctx)
+                assert settings(c) is True
+                prefs.set_many(c.app.state.ctx.db, {"gateway_url": ""})
+                c.app.state.ctx.vault.set("gateway_token", "")
+                c.app.state.ctx.vault.set("gateway_secret", "")
+                assert settings(c) is False
+            else:
+                c.post("/api/auth/login", json={"username": "admin", "password": "correct horse battery"}, headers={"X-Linkarr": "1"})
+                assert settings(c) is True

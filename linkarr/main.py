@@ -813,7 +813,10 @@ def create_app(cfg: Config | None = None, mega: Mega | None = None, tmdb_client:
     @app.get("/api/settings")
     async def get_settings(request: Request):
         ctx = ctx_of(request)
-        return {"prefs": prefs.all_prefs(ctx.db), "secrets": ctx.vault.which_set(), "libraries": jobs.libraries(ctx.db),
+        secrets = ctx.vault.which_set()
+        # Cerberus is a private gateway most people don't have: its settings only show once one is set, or with LA_GATEWAY=1.
+        gateway = cfg.gateway or bool(prefs.get(ctx.db, "gateway_url")) or secrets.get("gateway_token") or secrets.get("gateway_secret")
+        return {"prefs": prefs.all_prefs(ctx.db), "secrets": secrets, "gateway": bool(gateway), "libraries": jobs.libraries(ctx.db),
                 "media_dir": str(cfg.media_dir), "mega": {"installed": ctx.mega.cmd.installed() if hasattr(ctx.mega, "cmd") else True,
                                                           "email": ctx.status.get("mega_email", "")},
                 "quota": ctx.status.get("mega_quota")}

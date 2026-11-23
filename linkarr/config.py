@@ -23,6 +23,7 @@ class Config:
     default_tz: str
     mega_bin: str = ""  # folder holding the mega-* commands; empty = on PATH
     trusted_proxies: str = "*"  # whose X-Forwarded-For to believe; set to your reverse proxy's address
+    gateway: bool = False  # LA_GATEWAY=1 shows the Cerberus settings before a gateway is set
 
     @property
     def db_path(self) -> Path:
@@ -71,4 +72,5 @@ def load() -> Config:
         default_tz=os.environ.get("TZ", "UTC"),
         mega_bin=os.environ.get("LA_MEGA_BIN", ""),
         trusted_proxies=os.environ.get("LA_TRUSTED_PROXIES", "*").strip() or "*",
+        gateway=bool(_tri(os.environ.get("LA_GATEWAY", ""))),
     )
